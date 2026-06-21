@@ -1,0 +1,50 @@
+{
+  "name": "itunes2discord",
+  "version": "1.0.0",
+  "description": "Shows your iTunes now-playing track as Discord Rich Presence",
+  "main": "src/main.js",
+  "author": "Mak Siminski",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MackSiminski53/itunes2discord.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win",
+    "publish": "electron-builder --win --publish always"
+  },
+  "build": {
+    "appId": "com.yourname.itunes2discord",
+    "productName": "iTunes2Discord",
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "MackSiminski53",
+      "repo": "itunes2discord"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ]
+  },
+  "dependencies": {
+    "discord-rpc": "^4.0.1",
+    "electron-updater": "^6.3.0",
+    "electron-log": "^5.1.5"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}

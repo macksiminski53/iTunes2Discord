@@ -1,0 +1,51 @@
+# get-track.ps1
+# Queries the running iTunes app via COM and prints current track info as JSON.
+# Exit behavior: prints {"state":"stopped"} if iTunes isn't running or nothing is playing.
+
+$ErrorActionPreference = "SilentlyContinue"
+
+try {
+    $itunes = New-Object -ComObject iTunes.Application
+} catch {
+    Write-Output '{"state":"not_running"}'
+    exit 0
+}
+
+if ($null -eq $itunes) {
+    Write-Output '{"state":"not_running"}'
+    exit 0
+}
+
+$playerState = $itunes.PlayerState  # 0 = stopped, 1 = playing, 2 = paused (fast fwd/rewind also exist)
+
+if ($playerState -eq 0) {
+    Write-Output '{"state":"stopped"}'
+    exit 0
+}
+
+$track = $itunes.CurrentTrack
+
+if ($null -eq $track) {
+    Write-Output '{"state":"stopped"}'
+    exit 0
+}
+
+$name = $track.Name
+$artist = $track.Artist
+$album = $track.Album
+$duration = $track.Duration          # total length in seconds
+$position = $itunes.PlayerPosition   # current position in seconds
+
+$stateStr = "playing"
+if ($playerState -eq 2) { $stateStr = "paused" }
+
+$obj = [PSCustomObject]@{
+    state    = $stateStr
+    name     = $name
+    artist   = $artist
+    album    = $album
+    duration = $duration
+    position = $position
+}
+
+$obj | ConvertTo-Json -Compress
