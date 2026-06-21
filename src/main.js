@@ -92,11 +92,14 @@ async function connectDiscord() {
 }
 
 async function setPresence(track) {
-  if (!connected || !rpc) return;
+  if (!connected || !rpc) {
+    log.warn('Skipped presence update — not connected to Discord yet');
+    return false;
+  }
 
   if (track.state !== 'playing' && track.state !== 'paused') {
     await rpc.clearActivity().catch(() => {});
-    return;
+    return true;
   }
 
   const now = Date.now();
@@ -121,35 +124,53 @@ async function setPresence(track) {
     activity.smallImageText = 'Paused';
   }
 
-  await rpc.setActivity(activity).catch((e) => log.warn('setActivity failed:', e.message));
+  try {
+    await rpc.setActivity(activity);
+    return true;
+  } catch (e) {
+    log.warn('setActivity failed:', e.message);
+    return false;
+  }
 }
 
 // ---- Polling loop ----
+let firstPollDone = false;
+
 async function pollLoop() {
   if (!enabled) {
     pollTimer = setTimeout(pollLoop, POLL_INTERVAL_MS);
     return;
   }
 
-  const track = await getCurrentTrack();
+  try {
+    const track = await getCurrentTrack();
 
-  if (track.state === 'not_running' || track.state === 'stopped') {
-    if (lastTrackKey !== null) {
-      lastTrackKey = null;
-      if (connected) await rpc.clearActivity().catch(() => {});
-      updateTrayTooltip(`${APP_NAME} — iTunes not playing`);
+    if (track.state === 'not_running' || track.state === 'stopped') {
+      // Always update on the very first poll, even with no change, so the
+      // tooltip never stays stuck on "starting..." forever.
+      if (lastTrackKey !== null || !firstPollDone) {
+        lastTrackKey = null;
+        if (connected) await rpc.clearActivity().catch(() => {});
+        updateTrayTooltip(`${APP_NAME} — iTunes not playing`);
+      }
+    } else {
+      const key = `${track.name}|${track.artist}|${track.state}`;
+      if (key !== lastTrackKey || !firstPollDone) {
+        const pushedOk = await setPresence(track);
+        if (pushedOk) {
+          lastTrackKey = key;
+        }
+        updateTrayTooltip(`${track.state === 'playing' ? '▶' : '⏸'} ${track.name} — ${track.artist}`);
+        log.info('Now:', track.state, track.name, '-', track.artist);
+      }
     }
-  } else {
-    const key = `${track.name}|${track.artist}|${track.state}`;
-    if (key !== lastTrackKey) {
-      lastTrackKey = key;
-      await setPresence(track);
-      updateTrayTooltip(`${track.state === 'playing' ? '▶' : '⏸'} ${track.name} — ${track.artist}`);
-      log.info('Now:', track.state, track.name, '-', track.artist);
-    }
+  } catch (err) {
+    log.error('pollLoop error:', err.message);
+    updateTrayTooltip(`${APP_NAME} — error, retrying...`);
+  } finally {
+    firstPollDone = true;
+    pollTimer = setTimeout(pollLoop, POLL_INTERVAL_MS);
   }
-
-  pollTimer = setTimeout(pollLoop, POLL_INTERVAL_MS);
 }
 
 // ---- Tray UI ----
