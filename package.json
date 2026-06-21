@@ -36,6 +36,9 @@
       "src/**/*",
       "assets/**/*",
       "package.json"
+    ],
+    "asarUnpack": [
+      "src/get-track.ps1"
     ]
   },
   "dependencies": {

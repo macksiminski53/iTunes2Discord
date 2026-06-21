@@ -29,9 +29,20 @@ log.transports.console.level = 'info';
 autoUpdater.logger = log;
 
 // ---- iTunes polling via PowerShell/COM ----
+function getScriptPath() {
+  const normalPath = path.join(__dirname, 'get-track.ps1');
+  // When packaged, asarUnpack extracts this file to a parallel
+  // "app.asar.unpacked" folder since PowerShell cannot read files
+  // that live inside the compressed .asar archive itself.
+  if (app.isPackaged) {
+    return normalPath.replace('app.asar', 'app.asar.unpacked');
+  }
+  return normalPath;
+}
+
 function getCurrentTrack() {
   return new Promise((resolve) => {
-    const scriptPath = path.join(__dirname, 'get-track.ps1');
+    const scriptPath = getScriptPath();
     const ps = spawn('powershell.exe', [
       '-NoProfile',
       '-NonInteractive',
