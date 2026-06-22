@@ -1,8 +1,20 @@
 # get-track.ps1
 # Queries the running iTunes app via COM and prints current track info as JSON.
-# Exit behavior: prints {"state":"stopped"} if iTunes isn't running or nothing is playing.
+# Exit behavior: prints {"state":"not_running"} if iTunes isn't running, or
+# {"state":"stopped"} if it's running but nothing is loaded/playing.
 
 $ErrorActionPreference = "SilentlyContinue"
+
+# IMPORTANT: "New-Object -ComObject iTunes.Application" will silently LAUNCH
+# iTunes if it isn't already running (COM auto-activation). Since this script
+# runs on a timer, that would relaunch iTunes in the background every poll.
+# So we first check the process list and bail out without ever touching COM
+# if iTunes isn't actually open.
+$proc = Get-Process -Name "iTunes" -ErrorAction SilentlyContinue
+if (-not $proc) {
+    Write-Output '{"state":"not_running"}'
+    exit 0
+}
 
 try {
     $itunes = New-Object -ComObject iTunes.Application

@@ -1,7 +1,7 @@
 {
   "name": "itunes2discord",
-  "version": "1.1.0",
-  "description": "Shows your iTunes now-playing track as Discord Rich Presence",
+  "version": "1.2.0",
+  "description": "Shows your iTunes/Music now-playing track as Discord Rich Presence",
   "main": "src/main.js",
   "author": "Mak Siminski",
   "license": "MIT",
@@ -11,8 +11,8 @@
   },
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win",
-    "publish": "electron-builder --win --publish always"
+    "dist": "electron-builder",
+    "publish": "electron-builder --publish always"
   },
   "build": {
     "appId": "com.yourname.itunes2discord",
@@ -27,6 +27,18 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.music",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "iTunes2Discord needs permission to check what's currently playing in Music so it can update your Discord status.",
+        "LSUIElement": true
+      }
+    },
     "publish": {
       "provider": "github",
       "owner": "MackSiminski53",
@@ -38,11 +50,12 @@
       "package.json"
     ],
     "asarUnpack": [
-      "src/get-track.ps1"
+      "src/get-track.ps1",
+      "src/get-track.applescript"
     ]
   },
   "dependencies": {
-    "discord-rpc": "^4.0.1",
+    "@xhayper/discord-rpc": "^1.3.4",
     "electron-updater": "^6.3.0",
     "electron-log": "^5.1.5"
   },

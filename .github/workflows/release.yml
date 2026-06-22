@@ -1,8 +1,9 @@
 name: Build and Release
 
 # Runs whenever you push a tag like "v1.0.1" -- builds the Windows installer
-# and publishes it to GitHub Releases automatically. electron-updater (inside
-# the app) checks this Releases page to offer auto-updates to users.
+# and the macOS dmg/zip and publishes both to GitHub Releases automatically.
+# electron-updater (inside the app) checks this Releases page to offer
+# auto-updates to users on both platforms.
 
 on:
   push:
@@ -29,3 +30,27 @@ jobs:
         run: npm run publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-mac:
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build and publish macOS dmg/zip
+        run: npm run publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Without CSC_LINK/CSC_KEY_PASSWORD secrets set, electron-builder
+          # produces an unsigned, un-notarized build. That's fine to ship,
+          # but users will see a Gatekeeper warning on first launch (same
+          # idea as the Windows SmartScreen warning) -- see README.
