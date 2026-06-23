@@ -51,13 +51,31 @@ $position = $itunes.PlayerPosition   # current position in seconds
 $stateStr = "playing"
 if ($playerState -eq 2) { $stateStr = "paused" }
 
+# Try to extract album artwork and save it to a temp file
+$artworkPath = ""
+try {
+    $artCollection = $track.Artwork
+    if ($artCollection.Count -gt 0) {
+        $art = $artCollection.Item(1)
+        $tempDir = [System.IO.Path]::GetTempPath()
+        $artFile = Join-Path $tempDir "itunes2discord-artwork.jpg"
+        $art.SaveArtworkToFile($artFile)
+        if (Test-Path $artFile) {
+            $artworkPath = $artFile
+        }
+    }
+} catch {
+    # Artwork extraction failed — not critical, continue without it
+}
+
 $obj = [PSCustomObject]@{
-    state    = $stateStr
-    name     = $name
-    artist   = $artist
-    album    = $album
-    duration = $duration
-    position = $position
+    state       = $stateStr
+    name        = $name
+    artist      = $artist
+    album       = $album
+    duration    = $duration
+    position    = $position
+    artworkPath = $artworkPath
 }
 
 $obj | ConvertTo-Json -Compress

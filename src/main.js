@@ -1,26 +1,27 @@
 // src/main.js
-const { app, Tray, Menu, nativeImage, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, dialog, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { spawn } = require('child_process');
 
 // ---- Single-instance lock ----
-// This MUST run before anything else touches the app/Tray/etc. Electron's
-// own docs warn that requesting the lock late (e.g. after app.on('ready')
-// is already registered) can race with a second instance briefly starting
-// up before it's told to quit. Doing it first, before any other Electron
-// API is used, avoids that.
 const gotLock = app.requestSingleInstanceLock();
 
 if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    // Tray-only app, nothing to focus — just let the existing instance
-    // keep running and let this second launch exit quietly.
+    // If user tries to open a second instance, focus the existing window
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
   });
 
   runApp();
 }
+
+let mainWindow = null;
 
 function runApp() {
   const DiscordRPC = require('@xhayper/discord-rpc');
@@ -28,13 +29,8 @@ function runApp() {
   const log = require('electron-log');
 
   // ---- CONFIG ----
-  // This is the app's Discord Application/Client ID (created once by the developer
-  // at https://discord.com/developers/applications). End users do NOT need their
-  // own ID -- everyone using iTunes2Discord shares this one, same as how every
-  // Spotify user shares Spotify's single Discord integration.
   const CLIENT_ID = '1518362803008831769';
-
-  const POLL_INTERVAL_MS = 15000; // how often to check iTunes/Music (15s is safe re: rate limits)
+  const POLL_INTERVAL_MS = 15000;
   const APP_NAME = 'iTunes2Discord';
 
   let tray = null;
@@ -45,20 +41,97 @@ function runApp() {
   let pollTimer = null;
   let enabled = true;
   let warnedUnsupportedPlatform = false;
+  let currentTrackState = null; // latest track info for the renderer
 
-  // ---- Logging (writes to %APPDATA%/itunes2discord/logs on Windows,
-  // ~/Library/Logs/itunes2discord on macOS) ----
+  // ---- Logging ----
   log.transports.file.level = 'info';
   log.transports.console.level = 'info';
   autoUpdater.logger = log;
 
-  // ---- Track polling (Windows: PowerShell/COM against iTunes. macOS: AppleScript against Music/iTunes) ----
+  // ---- Data Persistence ----
+  // Stores play history and per-song play counts in a JSON file at:
+  //   Windows: %APPDATA%/itunes2discord/play-data.json
+  //   macOS:   ~/Library/Application Support/itunes2discord/play-data.json
+  const dataDir = app.getPath('userData');
+  const dataFile = path.join(dataDir, 'play-data.json');
+
+  function loadData() {
+    try {
+      if (fs.existsSync(dataFile)) {
+        const raw = fs.readFileSync(dataFile, 'utf8');
+        const parsed = JSON.parse(raw);
+        // Basic structure validation
+        return {
+          history: Array.isArray(parsed.history) ? parsed.history : [],
+          playCounts: (parsed.playCounts && typeof parsed.playCounts === 'object') ? parsed.playCounts : {},
+        };
+      }
+    } catch (err) {
+      log.warn('Failed to load play data, starting fresh:', err.message);
+    }
+    return { history: [], playCounts: {} };
+  }
+
+  function saveData(data) {
+    try {
+      // Keep history to a reasonable size (last 5000 entries)
+      if (data.history.length > 5000) {
+        data.history = data.history.slice(-5000);
+      }
+      fs.writeFileSync(dataFile, JSON.stringify(data, null, 2), 'utf8');
+    } catch (err) {
+      log.warn('Failed to save play data:', err.message);
+    }
+  }
+
+  let playData = loadData();
+
+  function recordPlay(track) {
+    const entry = {
+      name: track.name,
+      artist: track.artist,
+      album: track.album || '',
+      timestamp: Date.now(),
+    };
+
+    playData.history.push(entry);
+
+    // Update play count
+    const key = `${track.name}||${track.artist}`;
+    if (!playData.playCounts[key]) {
+      playData.playCounts[key] = {
+        name: track.name,
+        artist: track.artist,
+        album: track.album || '',
+        count: 0,
+        lastPlayed: 0,
+      };
+    }
+    playData.playCounts[key].count += 1;
+    playData.playCounts[key].lastPlayed = Date.now();
+    // Update album in case it changed (same song on a different album/compilation)
+    if (track.album) playData.playCounts[key].album = track.album;
+
+    saveData(playData);
+
+    // Push updated data to the renderer
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('data-update', {
+        history: playData.history,
+        playCounts: playData.playCounts,
+      });
+    }
+  }
+
+  // ---- IPC Handlers ----
+  ipcMain.handle('get-data', () => ({
+    history: playData.history,
+    playCounts: playData.playCounts,
+  }));
+
+  // ---- Track polling ----
   function getScriptPath(filename) {
     const normalPath = path.join(__dirname, filename);
-    // When packaged, asarUnpack extracts this file to a parallel
-    // "app.asar.unpacked" folder since external processes (PowerShell,
-    // osascript) cannot read files that live inside the compressed .asar
-    // archive itself.
     if (app.isPackaged) {
       return normalPath.replace('app.asar', 'app.asar.unpacked');
     }
@@ -112,11 +185,7 @@ function runApp() {
       osa.stderr.on('data', (d) => (stderr += d.toString()));
 
       osa.on('close', () => {
-        if (stderr) {
-          // This is where a denied Automation permission shows up
-          // (e.g. "Not authorized to send Apple events to Music").
-          log.warn('osascript stderr:', stderr.trim());
-        }
+        if (stderr) log.warn('osascript stderr:', stderr.trim());
         const trimmed = stdout.trim();
         if (!trimmed || trimmed === 'not_running') return resolve({ state: 'not_running' });
         if (trimmed === 'stopped') return resolve({ state: 'stopped' });
@@ -148,7 +217,7 @@ function runApp() {
     if (process.platform === 'win32') return getCurrentTrackWindows();
     if (process.platform === 'darwin') return getCurrentTrackMac();
     if (!warnedUnsupportedPlatform) {
-      log.warn(`${APP_NAME} doesn't support platform "${process.platform}" yet (only Windows and macOS).`);
+      log.warn(`${APP_NAME} doesn't support platform "${process.platform}" yet.`);
       warnedUnsupportedPlatform = true;
     }
     return Promise.resolve({ state: 'not_running' });
@@ -199,10 +268,13 @@ function runApp() {
     const startTimestamp = Math.floor(now - track.position * 1000);
     const endTimestamp = Math.floor(now + (track.duration - track.position) * 1000);
 
+    // Try to get a public album art URL (Windows only, falls back to logo)
+    const artworkUrl = await uploadArtworkToImgur(track.artworkPath || null);
+
     const activity = {
       details: track.name || 'Unknown track',
       state: track.artist ? `by ${track.artist}` : 'Unknown artist',
-      largeImageKey: 'itunes_logo',
+      largeImageKey: artworkUrl || 'itunes_logo',
       largeImageText: track.album || '',
       instance: false,
     };
@@ -226,6 +298,54 @@ function runApp() {
     }
   }
 
+  // ---- Imgur artwork upload (Windows only) ----
+  const IMGUR_CLIENT_ID = '546c25a59c58ad7';
+  const artworkCache = new Map(); // hash → imgur URL
+
+  async function uploadArtworkToImgur(artworkPath) {
+    if (!artworkPath || process.platform !== 'win32') return null;
+
+    try {
+      const fileBuffer = fs.readFileSync(artworkPath);
+      if (!fileBuffer || fileBuffer.length === 0) return null;
+
+      // Hash the file content so identical covers aren't re-uploaded
+      const crypto = require('crypto');
+      const hash = crypto.createHash('md5').update(fileBuffer).digest('hex');
+
+      if (artworkCache.has(hash)) {
+        return artworkCache.get(hash);
+      }
+
+      const base64 = fileBuffer.toString('base64');
+
+      const response = await fetch('https://api.imgur.com/3/image', {
+        method: 'POST',
+        headers: {
+          Authorization: `Client-ID ${IMGUR_CLIENT_ID}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ image: base64, type: 'base64' }),
+      });
+
+      if (!response.ok) {
+        log.warn(`Imgur upload failed: HTTP ${response.status}`);
+        return null;
+      }
+
+      const json = await response.json();
+      const url = json?.data?.link;
+      if (!url) return null;
+
+      artworkCache.set(hash, url);
+      log.info('Uploaded artwork to Imgur:', url);
+      return url;
+    } catch (err) {
+      log.warn('Artwork upload error:', err.message);
+      return null;
+    }
+  }
+
   // ---- Polling loop ----
   let firstPollDone = false;
 
@@ -237,10 +357,14 @@ function runApp() {
 
     try {
       const track = await getCurrentTrack();
+      currentTrackState = track;
+
+      // Send live track state to the renderer window
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('track-update', track);
+      }
 
       if (track.state === 'not_running' || track.state === 'stopped') {
-        // Always update on the very first poll, even with no change, so the
-        // tooltip never stays stuck on "starting..." forever.
         if (lastTrackKey !== null || !firstPollDone) {
           lastTrackKey = null;
           lastPosition = null;
@@ -250,20 +374,29 @@ function runApp() {
       } else {
         const key = `${track.name}|${track.artist}|${track.state}`;
 
-        // Same song/state as last poll, but the position jumped backwards
-        // (repeat-one looped, or the user scrubbed back) — without this,
-        // the dedupe key never changes so Discord's elapsed-time bar would
-        // silently go stale instead of restarting.
         const positionRewound =
           key === lastTrackKey &&
           lastPosition !== null &&
           track.position < lastPosition - 3;
 
         if (key !== lastTrackKey || positionRewound || !firstPollDone) {
+          // Save the previous key BEFORE updating, so the track-change
+          // comparison below works against what was actually playing before
+          const previousKey = lastTrackKey;
+
           const pushedOk = await setPresence(track);
           if (pushedOk) {
             lastTrackKey = key;
           }
+
+          // Record the play in history/leaderboard (only on actual track changes,
+          // not on pause→play of the same song, and not on position rewinds)
+          const trackChangeKey = `${track.name}|${track.artist}`;
+          const prevTrackOnly = previousKey ? previousKey.replace(/\|(playing|paused)$/, '') : null;
+          if (trackChangeKey !== prevTrackOnly && track.state === 'playing') {
+            recordPlay(track);
+          }
+
           updateTrayTooltip(`${track.state === 'playing' ? '▶' : '⏸'} ${track.name} — ${track.artist}`);
           log.info('Now:', track.state, track.name, '-', track.artist);
         }
@@ -293,6 +426,15 @@ function runApp() {
       },
       { type: 'separator' },
       {
+        label: 'Show window',
+        click: () => {
+          if (mainWindow) {
+            mainWindow.show();
+            mainWindow.focus();
+          }
+        },
+      },
+      {
         label: enabled ? 'Pause syncing' : 'Resume syncing',
         click: () => {
           enabled = !enabled;
@@ -314,6 +456,44 @@ function runApp() {
       },
     ]);
     tray.setContextMenu(contextMenu);
+  }
+
+  // ---- Main Window ----
+  function createWindow() {
+    const preloadPath = path.join(__dirname, 'preload.js');
+
+    mainWindow = new BrowserWindow({
+      width: 480,
+      height: 640,
+      minWidth: 380,
+      minHeight: 480,
+      backgroundColor: '#0d0d14',
+      titleBarStyle: 'default',
+      show: true,
+      icon: path.join(__dirname, '..', 'assets', 'icon.ico'),
+      webPreferences: {
+        preload: preloadPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+
+    mainWindow.loadFile(path.join(__dirname, 'index.html'));
+
+    // Hide instead of close — the app keeps running in the tray
+    mainWindow.on('close', (e) => {
+      if (!app.isQuitting) {
+        e.preventDefault();
+        mainWindow.hide();
+      }
+    });
+
+    mainWindow.on('closed', () => {
+      mainWindow = null;
+    });
+
+    // Remove default menu bar (File/Edit/View etc)
+    mainWindow.setMenuBarVisibility(false);
   }
 
   // ---- Auto-update events ----
@@ -339,9 +519,12 @@ function runApp() {
   });
 
   // ---- App lifecycle ----
+  app.on('before-quit', () => {
+    app.isQuitting = true;
+  });
+
   app.whenReady().then(() => {
-    // macOS: this is a menu-bar-only utility, not a Dock app — hide the
-    // Dock icon like other tray utilities (Bartender, Itsycal, etc).
+    // macOS: menu-bar-only utility, hide the Dock icon
     if (process.platform === 'darwin' && app.dock) {
       app.dock.hide();
     }
@@ -349,17 +532,33 @@ function runApp() {
     const iconPath = path.join(__dirname, '..', 'assets', 'tray-icon.png');
     tray = new Tray(nativeImage.createFromPath(iconPath));
     tray.setToolTip(`${APP_NAME} — starting...`);
-    updateTrayMenu();
 
+    // Double-click tray icon shows the window
+    tray.on('double-click', () => {
+      if (mainWindow) {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+
+    updateTrayMenu();
+    createWindow();
     connectDiscord();
     pollLoop();
 
-    // Check for updates ~5s after launch, then silently every few hours
     setTimeout(() => autoUpdater.checkForUpdatesAndNotify(), 5000);
     setInterval(() => autoUpdater.checkForUpdatesAndNotify(), 4 * 60 * 60 * 1000);
   });
 
   app.on('window-all-closed', (e) => {
     e?.preventDefault?.();
+  });
+
+  app.on('activate', () => {
+    // macOS: clicking the dock icon re-shows the window
+    if (mainWindow) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
   });
 }
