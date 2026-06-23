@@ -26,7 +26,8 @@ Shows what you're playing in iTunes (Windows) or Music (macOS) as your Discord s
 6. Make sure the **Discord desktop app** (not browser) is open and you're logged in.
 7. Play something in Music — your Discord status updates within ~15 seconds.
 
-Both platforms: the app auto-updates itself in the background, and auto-checks for new versions on startup. Click the tray/menu-bar icon any time to pause syncing, check for updates, or quit.
+Both platforms: the app hopefully auto-updates itself in the background, and auto-checks for new versions on startup. Click the tray/menu-bar icon any time to pause syncing, check for updates, or quit.
+[also mac os may not work sadily]
 
 ### Requirements
 - **Windows:** Windows 10/11, classic iTunes app installed (not the Apple Music Windows preview app — it doesn't expose the same automation interface), Discord desktop app.
