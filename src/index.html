@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>iTunes2Discord</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: linear-gradient(135deg, #0d0d14 0%, #1a1a2e 100%);
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 0;
+      margin: 0;
+      overflow: hidden;
+      height: 100vh;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 20px;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid #333;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ff6b6b;
+      animation: pulse 1s infinite;
+    }
+
+    .status-dot.connected {
+      background: #51cf66;
+      animation: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.5;
+      }
+    }
+
+    /* Now Playing Section */
+    .now-playing {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      text-align: center;
+    }
+
+    .album-art {
+      width: 140px;
+      height: 140px;
+      margin: 0 auto 15px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 48px;
+      overflow: hidden;
+    }
+
+    .album-art img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .track-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .track-artist {
+      font-size: 14px;
+      color: #a0a0a0;
+      margin-bottom: 3px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .track-album {
+      font-size: 12px;
+      color: #808080;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .track-state {
+      font-size: 12px;
+      color: #51cf66;
+      margin-top: 8px;
+      font-weight: 500;
+    }
+
+    .track-state.paused {
+      color: #ffa94d;
+    }
+
+    /* Controls */
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    button {
+      padding: 10px 16px;
+      background: rgba(81, 207, 102, 0.2);
+      color: #51cf66;
+      border: 1px solid rgba(81, 207, 102, 0.5);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+      font-weight: 500;
+    }
+
+    button:hover:not(:disabled) {
+      background: rgba(81, 207, 102, 0.3);
+      border-color: #51cf66;
+      transform: translateY(-2px);
+    }
+
+    button:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button.pause-btn {
+      background: rgba(255, 165, 0, 0.2);
+      color: #ffa94d;
+      border-color: rgba(255, 165, 0, 0.5);
+    }
+
+    button.pause-btn:hover:not(:disabled) {
+      background: rgba(255, 165, 0, 0.3);
+      border-color: #ffa94d;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+      border-bottom: 1px solid #333;
+    }
+
+    .tab-btn {
+      background: none;
+      color: #a0a0a0;
+      border: none;
+      padding: 10px 16px;
+      cursor: pointer;
+      font-size: 14px;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .tab-btn.active {
+      color: #51cf66;
+      border-bottom-color: #51cf66;
+    }
+
+    .tab-btn:hover {
+      color: #e0e0e0;
+      background: none;
+      transform: none;
+    }
+
+    /* Content Areas */
+    .tab-content {
+      display: none;
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 8px;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* History List */
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .history-item {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .history-item:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .history-time {
+      font-size: 11px;
+      color: #808080;
+    }
+
+    /* Leaderboard */
+    .leaderboard-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .leaderboard-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 13px;
+    }
+
+    .leaderboard-rank {
+      font-weight: 600;
+      color: #51cf66;
+      min-width: 24px;
+    }
+
+    .leaderboard-info {
+      flex: 1;
+      margin-left: 12px;
+      overflow: hidden;
+    }
+
+    .leaderboard-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 500;
+    }
+
+    .leaderboard-artist {
+      font-size: 11px;
+      color: #808080;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .leaderboard-count {
+      font-weight: 600;
+      color: #ffa94d;
+      min-width: 40px;
+      text-align: right;
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #808080;
+    }
+
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.1);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <h1>iTunes2Discord</h1>
+      <div class="status">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Connecting...</span>
+      </div>
+    </div>
+
+    <!-- Now Playing -->
+    <div class="now-playing">
+      <div class="album-art" id="albumArt">🎵</div>
+      <div class="track-title" id="trackTitle">Not playing</div>
+      <div class="track-artist" id="trackArtist"></div>
+      <div class="track-album" id="trackAlbum"></div>
+      <div class="track-state" id="trackState"></div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button id="prevBtn">⏮ Previous</button>
+      <button id="playPauseBtn" class="pause-btn">⏸ Pause</button>
+      <button id="nextBtn">Next ⏭</button>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="now-playing">Now Playing</button>
+      <button class="tab-btn" data-tab="history">History</button>
+      <button class="tab-btn" data-tab="leaderboard">Top Tracks</button>
+    </div>
+
+    <!-- Tab Content -->
+    <div class="tab-content active" id="now-playing-content">
+      <div id="nowPlayingInfo"></div>
+    </div>
+
+    <div class="tab-content" id="history-content">
+      <div class="history-list" id="historyList"></div>
+    </div>
+
+    <div class="tab-content" id="leaderboard-content">
+      <div class="leaderboard-list" id="leaderboardList"></div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
