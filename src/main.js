@@ -129,6 +129,62 @@ function runApp() {
     playCounts: playData.playCounts,
   }));
 
+  ipcMain.handle('play-track', async () => {
+    if (process.platform === 'win32') {
+      spawn('powershell.exe', [
+        '-Command',
+        '(New-Object -ComObject iTunes.Application).PlayPause()',
+      ]);
+    } else if (process.platform === 'darwin') {
+      spawn('osascript', [
+        '-e',
+        'tell application "Music" to play',
+      ]);
+    }
+  });
+
+  ipcMain.handle('pause-track', async () => {
+    if (process.platform === 'win32') {
+      spawn('powershell.exe', [
+        '-Command',
+        '(New-Object -ComObject iTunes.Application).PlayPause()',
+      ]);
+    } else if (process.platform === 'darwin') {
+      spawn('osascript', [
+        '-e',
+        'tell application "Music" to pause',
+      ]);
+    }
+  });
+
+  ipcMain.handle('next-track', async () => {
+    if (process.platform === 'win32') {
+      spawn('powershell.exe', [
+        '-Command',
+        '(New-Object -ComObject iTunes.Application).NextTrack()',
+      ]);
+    } else if (process.platform === 'darwin') {
+      spawn('osascript', [
+        '-e',
+        'tell application "Music" to next track',
+      ]);
+    }
+  });
+
+  ipcMain.handle('previous-track', async () => {
+    if (process.platform === 'win32') {
+      spawn('powershell.exe', [
+        '-Command',
+        '(New-Object -ComObject iTunes.Application).PreviousTrack()',
+      ]);
+    } else if (process.platform === 'darwin') {
+      spawn('osascript', [
+        '-e',
+        'tell application "Music" to previous track',
+      ]);
+    }
+  });
+
   // ---- Track polling ----
   function getScriptPath(filename) {
     const normalPath = path.join(__dirname, filename);
@@ -235,12 +291,18 @@ function runApp() {
       connected = true;
       log.info('Connected to Discord RPC');
       updateTrayMenu();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('discord-connected');
+      }
     });
 
     rpc.on('disconnected', () => {
       connected = false;
       log.info('Disconnected from Discord RPC');
       updateTrayMenu();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('discord-disconnected');
+      }
       setTimeout(connectDiscord, 10000);
     });
 
@@ -463,13 +525,13 @@ function runApp() {
     const preloadPath = path.join(__dirname, 'preload.js');
 
     mainWindow = new BrowserWindow({
-      width: 480,
-      height: 640,
-      minWidth: 380,
+      width: 800,
+      height: 700,
+      minWidth: 500,
       minHeight: 480,
       backgroundColor: '#0d0d14',
       titleBarStyle: 'default',
-      show: true,
+      show: false,
       icon: path.join(__dirname, '..', 'assets', 'icon.ico'),
       webPreferences: {
         preload: preloadPath,
@@ -479,6 +541,12 @@ function runApp() {
     });
 
     mainWindow.loadFile(path.join(__dirname, 'index.html'));
+
+    // Show window once content is loaded
+    mainWindow.once('ready-to-show', () => {
+      mainWindow.show();
+      mainWindow.focus();
+    });
 
     // Hide instead of close — the app keeps running in the tray
     mainWindow.on('close', (e) => {
