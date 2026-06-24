@@ -1,390 +1,369 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>iTunes2Discord</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+<meta charset="UTF-8" />
+<title>iTunes2Discord</title>
+<style>
+  :root {
+    --bg: #0F0F14;
+    --bg-raised: #17171F;
+    --indigo: #5865F2;
+    --magenta: #B06CFF;
+    --sky: #3FC7FF;
+    --text: #F4F2F8;
+    --text-dim: #9A97A8;
+    --divider: #26242E;
+    --good: #3FE08A;
+    --bad: #FF6B6B;
+  }
 
-    body {
-      background: linear-gradient(135deg, #0d0d14 0%, #1a1a2e 100%);
-      color: #e0e0e0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      padding: 0;
-      margin: 0;
-      overflow: hidden;
-      height: 100vh;
-    }
+  * { box-sizing: border-box; }
 
-    .container {
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-      padding: 20px;
-    }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
 
-    /* Header */
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 20px;
-      padding-bottom: 15px;
-      border-bottom: 1px solid #333;
-    }
+  #drag-region {
+    height: 32px;
+    -webkit-app-region: drag;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 8px;
+    position: relative;
+    z-index: 10;
+  }
 
-    .header h1 {
-      font-size: 24px;
-      font-weight: 600;
-    }
+  #drag-region .app-label {
+    -webkit-app-region: no-drag;
+    position: absolute;
+    left: 14px;
+    top: 0;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    font-weight: 600;
+  }
 
-    .status {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 14px;
-    }
+  .win-btn {
+    -webkit-app-region: no-drag;
+    width: 28px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-radius: 6px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .win-btn:hover { background: var(--bg-raised); color: var(--text); }
 
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #ff6b6b;
-      animation: pulse 1s infinite;
-    }
+  /* ---- Hero: album art with bleeding gradient ---- */
+  #hero {
+    position: relative;
+    padding: 28px 28px 20px;
+    display: flex;
+    gap: 20px;
+    align-items: center;
+  }
 
-    .status-dot.connected {
-      background: #51cf66;
-      animation: none;
-    }
+  #hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(120% 100% at 0% 0%, rgba(88,101,242,0.35), transparent 60%),
+                radial-gradient(120% 100% at 100% 100%, rgba(63,199,255,0.25), transparent 60%);
+    pointer-events: none;
+  }
 
-    @keyframes pulse {
-      0%, 100% {
-        opacity: 1;
-      }
-      50% {
-        opacity: 0.5;
-      }
-    }
+  #art-wrap {
+    position: relative;
+    width: 88px;
+    height: 88px;
+    flex-shrink: 0;
+    border-radius: 14px;
+    overflow: hidden;
+    background: linear-gradient(135deg, var(--indigo), var(--magenta) 55%, var(--sky));
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
 
-    /* Now Playing Section */
-    .now-playing {
-      background: rgba(255, 255, 255, 0.05);
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 20px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      text-align: center;
-    }
+  #art-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: none;
+  }
 
-    .album-art {
-      width: 140px;
-      height: 140px;
-      margin: 0 auto 15px;
-      border-radius: 8px;
-      background: rgba(0, 0, 0, 0.3);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 48px;
-      overflow: hidden;
-    }
+  #art-fallback {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #art-fallback svg { width: 36px; height: 36px; opacity: 0.85; }
 
-    .album-art img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
+  #track-meta {
+    position: relative;
+    min-width: 0;
+    flex: 1;
+  }
 
-    .track-title {
-      font-size: 18px;
-      font-weight: 600;
-      margin-bottom: 5px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+  #eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
 
-    .track-artist {
-      font-size: 14px;
-      color: #a0a0a0;
-      margin-bottom: 3px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+  #status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: background 0.3s;
+  }
+  #status-dot.live { background: var(--good); box-shadow: 0 0 8px var(--good); }
+  #status-dot.off { background: var(--bad); }
 
-    .track-album {
-      font-size: 12px;
-      color: #808080;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+  #track-name {
+    font-size: 18px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 2px;
+  }
 
-    .track-state {
-      font-size: 12px;
-      color: #51cf66;
-      margin-top: 8px;
-      font-weight: 500;
-    }
+  #track-artist {
+    font-size: 13px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
-    .track-state.paused {
-      color: #ffa94d;
-    }
+  /* ---- Groove progress bar (signature element) ---- */
+  #groove-wrap {
+    padding: 0 28px 22px;
+  }
 
-    /* Controls */
-    .controls {
-      display: flex;
-      justify-content: center;
-      gap: 12px;
-      margin-bottom: 20px;
-    }
+  #groove {
+    position: relative;
+    height: 22px;
+    display: flex;
+    align-items: center;
+  }
 
-    button {
-      padding: 10px 16px;
-      background: rgba(81, 207, 102, 0.2);
-      color: #51cf66;
-      border: 1px solid rgba(81, 207, 102, 0.5);
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 14px;
-      transition: all 0.2s;
-      font-weight: 500;
-    }
+  #groove-track {
+    position: absolute;
+    left: 0; right: 0;
+    height: 3px;
+    border-radius: 3px;
+    background: repeating-linear-gradient(
+      90deg,
+      var(--divider) 0px, var(--divider) 3px,
+      transparent 3px, transparent 6px
+    );
+  }
 
-    button:hover:not(:disabled) {
-      background: rgba(81, 207, 102, 0.3);
-      border-color: #51cf66;
-      transform: translateY(-2px);
-    }
+  #groove-fill {
+    position: absolute;
+    left: 0;
+    height: 3px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--indigo), var(--sky));
+    width: 0%;
+    transition: width 0.3s linear;
+  }
 
-    button:active:not(:disabled) {
-      transform: translateY(0);
-    }
+  #groove-needle {
+    position: absolute;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--text);
+    left: 0%;
+    box-shadow: 0 0 0 3px rgba(244,242,248,0.15);
+    transition: left 0.3s linear;
+  }
 
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
+  #time-row {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+    font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
 
-    button.pause-btn {
-      background: rgba(255, 165, 0, 0.2);
-      color: #ffa94d;
-      border-color: rgba(255, 165, 0, 0.5);
-    }
+  /* ---- Divider ---- */
+  .divider {
+    height: 1px;
+    background: var(--divider);
+    margin: 0 28px;
+  }
 
-    button.pause-btn:hover:not(:disabled) {
-      background: rgba(255, 165, 0, 0.3);
-      border-color: #ffa94d;
-    }
+  /* ---- Settings rows ---- */
+  #settings {
+    padding: 18px 28px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
 
-    /* Tabs */
-    .tabs {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 15px;
-      border-bottom: 1px solid #333;
-    }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+  }
 
-    .tab-btn {
-      background: none;
-      color: #a0a0a0;
-      border: none;
-      padding: 10px 16px;
-      cursor: pointer;
-      font-size: 14px;
-      border-bottom: 2px solid transparent;
-      transition: all 0.2s;
-    }
+  .row-label {
+    font-size: 13px;
+    color: var(--text);
+  }
 
-    .tab-btn.active {
-      color: #51cf66;
-      border-bottom-color: #51cf66;
-    }
+  .row-sub {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
 
-    .tab-btn:hover {
-      color: #e0e0e0;
-      background: none;
-      transform: none;
-    }
+  .pill-btn {
+    -webkit-app-region: no-drag;
+    background: var(--bg-raised);
+    border: 1px solid var(--divider);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 14px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .pill-btn:hover { border-color: var(--indigo); }
+  .pill-btn:active { transform: scale(0.97); }
 
-    /* Content Areas */
-    .tab-content {
-      display: none;
-      flex: 1;
-      overflow-y: auto;
-      padding-right: 8px;
-    }
+  .pill-btn.danger:hover { border-color: var(--bad); }
 
-    .tab-content.active {
-      display: block;
-    }
+  /* Toggle switch */
+  .toggle {
+    -webkit-app-region: no-drag;
+    width: 38px;
+    height: 22px;
+    border-radius: 12px;
+    background: var(--divider);
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+  .toggle.on { background: var(--indigo); }
+  .toggle-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--text);
+    transition: left 0.2s;
+  }
+  .toggle.on .toggle-knob { left: 18px; }
 
-    /* History List */
-    .history-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
+  /* Keyboard focus visibility */
+  button:focus-visible, .toggle:focus-visible {
+    outline: 2px solid var(--sky);
+    outline-offset: 2px;
+  }
 
-    .history-item {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 6px;
-      padding: 10px 12px;
-      font-size: 13px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .history-item:hover {
-      background: rgba(255, 255, 255, 0.08);
-      border-color: rgba(255, 255, 255, 0.15);
-    }
-
-    .history-time {
-      font-size: 11px;
-      color: #808080;
-    }
-
-    /* Leaderboard */
-    .leaderboard-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .leaderboard-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 6px;
-      padding: 10px 12px;
-      font-size: 13px;
-    }
-
-    .leaderboard-rank {
-      font-weight: 600;
-      color: #51cf66;
-      min-width: 24px;
-    }
-
-    .leaderboard-info {
-      flex: 1;
-      margin-left: 12px;
-      overflow: hidden;
-    }
-
-    .leaderboard-title {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-weight: 500;
-    }
-
-    .leaderboard-artist {
-      font-size: 11px;
-      color: #808080;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .leaderboard-count {
-      font-weight: 600;
-      color: #ffa94d;
-      min-width: 40px;
-      text-align: right;
-    }
-
-    /* Empty State */
-    .empty-state {
-      text-align: center;
-      padding: 40px 20px;
-      color: #808080;
-    }
-
-    .empty-state-icon {
-      font-size: 48px;
-      margin-bottom: 12px;
-    }
-
-    /* Scrollbar */
-    ::-webkit-scrollbar {
-      width: 6px;
-    }
-
-    ::-webkit-scrollbar-track {
-      background: rgba(0, 0, 0, 0.1);
-      border-radius: 3px;
-    }
-
-    ::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.2);
-      border-radius: 3px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 255, 255, 0.3);
-    }
-  </style>
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
 </head>
 <body>
-  <div class="container">
-    <!-- Header -->
-    <div class="header">
-      <h1>iTunes2Discord</h1>
-      <div class="status">
-        <div class="status-dot" id="statusDot"></div>
-        <span id="statusText">Connecting...</span>
+
+  <div id="drag-region">
+    <span class="app-label">ITUNES2DISCORD</span>
+    <button class="win-btn" id="btn-min" title="Minimize to tray" aria-label="Minimize to tray">&#8211;</button>
+    <button class="win-btn" id="btn-close" title="Close" aria-label="Close window">&#10005;</button>
+  </div>
+
+  <div id="hero">
+    <div id="art-wrap">
+      <img id="art-img" alt="" />
+      <div id="art-fallback">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M9 17V5l11-2v12" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="6" cy="17" r="3" stroke="white" stroke-width="1.6"/>
+          <circle cx="17" cy="15" r="3" stroke="white" stroke-width="1.6"/>
+        </svg>
       </div>
     </div>
-
-    <!-- Now Playing -->
-    <div class="now-playing">
-      <div class="album-art" id="albumArt">🎵</div>
-      <div class="track-title" id="trackTitle">Not playing</div>
-      <div class="track-artist" id="trackArtist"></div>
-      <div class="track-album" id="trackAlbum"></div>
-      <div class="track-state" id="trackState"></div>
-    </div>
-
-    <!-- Controls -->
-    <div class="controls">
-      <button id="prevBtn">⏮ Previous</button>
-      <button id="playPauseBtn" class="pause-btn">⏸ Pause</button>
-      <button id="nextBtn">Next ⏭</button>
-    </div>
-
-    <!-- Tabs -->
-    <div class="tabs">
-      <button class="tab-btn active" data-tab="now-playing">Now Playing</button>
-      <button class="tab-btn" data-tab="history">History</button>
-      <button class="tab-btn" data-tab="leaderboard">Top Tracks</button>
-    </div>
-
-    <!-- Tab Content -->
-    <div class="tab-content active" id="now-playing-content">
-      <div id="nowPlayingInfo"></div>
-    </div>
-
-    <div class="tab-content" id="history-content">
-      <div class="history-list" id="historyList"></div>
-    </div>
-
-    <div class="tab-content" id="leaderboard-content">
-      <div class="leaderboard-list" id="leaderboardList"></div>
+    <div id="track-meta">
+      <div id="eyebrow"><span id="status-dot"></span><span id="status-text">Checking…</span></div>
+      <div id="track-name">Nothing playing</div>
+      <div id="track-artist">Open iTunes and press play</div>
     </div>
   </div>
 
-  <script src="renderer.js"></script>
+  <div id="groove-wrap">
+    <div id="groove">
+      <div id="groove-track"></div>
+      <div id="groove-fill"></div>
+      <div id="groove-needle"></div>
+    </div>
+    <div id="time-row">
+      <span id="time-elapsed">0:00</span>
+      <span id="time-remaining">&minus;0:00</span>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div id="settings">
+    <div class="row">
+      <div>
+        <div class="row-label">Sync with Discord</div>
+        <div class="row-sub" id="sync-sub">Updates your status while iTunes plays</div>
+      </div>
+      <div class="toggle on" id="toggle-sync" role="switch" aria-checked="true" tabindex="0"></div>
+    </div>
+    <div class="row">
+      <div>
+        <div class="row-label">App version</div>
+        <div class="row-sub" id="version-sub">v1.2.0</div>
+      </div>
+      <button class="pill-btn" id="btn-update">Check for updates</button>
+    </div>
+    <div class="row">
+      <div>
+        <div class="row-label">Quit iTunes2Discord</div>
+        <div class="row-sub">Stops syncing and closes the app</div>
+      </div>
+      <button class="pill-btn danger" id="btn-quit">Quit</button>
+    </div>
+  </div>
+
+  <script src="./renderer.js"></script>
 </body>
 </html>

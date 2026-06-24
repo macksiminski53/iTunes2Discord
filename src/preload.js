@@ -1,14 +1,17 @@
 // src/preload.js
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('electronAPI', {
-  getPlayData: () => ipcRenderer.invoke('get-data'),
-  onTrackUpdate: (callback) => ipcRenderer.on('track-update', (event, track) => callback(track)),
-  onDataUpdate: (callback) => ipcRenderer.on('data-update', (event, data) => callback(data)),
-  onDiscordConnected: (callback) => ipcRenderer.on('discord-connected', () => callback()),
-  onDiscordDisconnected: (callback) => ipcRenderer.on('discord-disconnected', () => callback()),
-  playTrack: () => ipcRenderer.invoke('play-track'),
-  pauseTrack: () => ipcRenderer.invoke('pause-track'),
-  nextTrack: () => ipcRenderer.invoke('next-track'),
-  previousTrack: () => ipcRenderer.invoke('previous-track'),
+contextBridge.exposeInMainWorld('itunes2discord', {
+  // Renderer asks for the latest known track/connection state on load
+  getState: () => ipcRenderer.invoke('get-state'),
+
+  // Main process pushes updates whenever something changes
+  onStateUpdate: (callback) => {
+    ipcRenderer.on('state-update', (_event, state) => callback(state));
+  },
+
+  // Renderer-initiated actions
+  togglePause: () => ipcRenderer.send('toggle-pause'),
+  checkForUpdates: () => ipcRenderer.send('check-for-updates'),
+  quitApp: () => ipcRenderer.send('quit-app'),
 });
