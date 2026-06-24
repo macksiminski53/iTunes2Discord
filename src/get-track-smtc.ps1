@@ -11,10 +11,6 @@
 # Output contract matches get-track.ps1 so main.js can treat both sources
 # identically: {"state":...,"name":...,"artist":...,"album":...,
 # "duration":...,"position":...,"artworkPath":...}
-#
-# Note: SMTC does not reliably expose album artwork as a file path the way
-# iTunes' COM API does (it's available as an in-memory stream in some
-# cases), so artworkPath is intentionally left empty here for now.
 
 $ErrorActionPreference = "SilentlyContinue"
 
@@ -43,6 +39,9 @@ try {
     [void][Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime]
     [void][Windows.Media.Control.GlobalSystemMediaTransportControlsSession, Windows.Media.Control, ContentType = WindowsRuntime]
     [void][Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties, Windows.Media.Control, ContentType = WindowsRuntime]
+    [void][Windows.Storage.Streams.IRandomAccessStreamReference, Windows.Storage.Streams, ContentType = WindowsRuntime]
+    [void][Windows.Storage.Streams.IRandomAccessStreamWithContentType, Windows.Storage.Streams, ContentType = WindowsRuntime]
+    [void][Windows.Storage.Streams.DataReader, Windows.Storage.Streams, ContentType = WindowsRuntime]
 
     $managerOp = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()
     $manager = Await $managerOp ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
@@ -95,6 +94,41 @@ try {
     $duration = $endTime - $startTime
     if ($duration -lt 0) { $duration = 0 }
 
+    # ---- Thumbnail extraction ----
+    # The thumbnail comes back as a stream reference, not a file -- we have
+    # to open it, read it into a byte buffer via a DataReader, then write
+    # those bytes out to a temp file ourselves so the rest of the app can
+    # treat it exactly like the file path iTunes' COM API gives us.
+    $artworkPath = ""
+    try {
+        $thumbRef = $props.Thumbnail
+        if ($null -ne $thumbRef) {
+            $streamOp = $thumbRef.OpenReadAsync()
+            $stream = Await $streamOp ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
+
+            if ($null -ne $stream -and $stream.Size -gt 0) {
+                $reader = [Windows.Storage.Streams.DataReader]::new($stream)
+                $loadOp = $reader.LoadAsync([System.UInt32]$stream.Size)
+                Await $loadOp ([System.UInt32]) | Out-Null
+
+                $bytes = New-Object byte[] ([int]$stream.Size)
+                $reader.ReadBytes($bytes)
+
+                $tempDir = [System.IO.Path]::GetTempPath()
+                $artFile = Join-Path $tempDir "itunes2discord-smtc-artwork.jpg"
+                [System.IO.File]::WriteAllBytes($artFile, $bytes)
+
+                if (Test-Path $artFile) {
+                    $artworkPath = $artFile
+                }
+            }
+        }
+    } catch {
+        # Thumbnail extraction failed -- not critical, continue without it.
+        # Common causes: app didn't provide one, or the stream content type
+        # isn't a directly-savable image format.
+    }
+
     $obj = [PSCustomObject]@{
         state       = $stateStr
         name        = $name
@@ -102,7 +136,7 @@ try {
         album       = $album
         duration    = $duration
         position    = $position
-        artworkPath = ""
+        artworkPath = $artworkPath
     }
 
     $obj | ConvertTo-Json -Compress
@@ -110,3 +144,4 @@ try {
     Write-Output '{"state":"not_running"}'
     exit 0
 }
+
