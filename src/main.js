@@ -2,6 +2,8 @@
 const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 
 // ---- Single-instance lock ----
@@ -189,6 +191,89 @@ function runApp() {
     }
   }
 
+  // ---- Album artwork upload (Imgur) ----
+  // Discord Rich Presence images must be either pre-uploaded asset keys or a
+  // public https:// URL it can fetch -- it can't read files off the user's
+  // disk. So for real per-song album art, we upload each track's artwork to
+  // Imgur anonymously (no account needed) and use the resulting URL.
+  const artworkUrlCache = new Map();
+
+  function uploadArtworkToImgur(filePath) {
+    return new Promise((resolve) => {
+      let imageData;
+      try {
+        imageData = fs.readFileSync(filePath, { encoding: 'base64' });
+      } catch (e) {
+        log.warn('Could not read artwork file:', e.message);
+        return resolve(null);
+      }
+
+      // Hash the actual image bytes for the cache key -- the artwork file on
+      // disk gets overwritten in place for every new track, so caching by
+      // file PATH would incorrectly reuse a stale URL from a previous song.
+      const contentHash = crypto.createHash('md5').update(imageData).digest('hex');
+      if (artworkUrlCache.has(contentHash)) {
+        return resolve(artworkUrlCache.get(contentHash));
+      }
+
+      const postData = `image=${encodeURIComponent(imageData)}&type=base64`;
+
+      const req = https.request(
+        {
+          hostname: 'api.imgur.com',
+          path: '/3/image',
+          method: 'POST',
+          headers: {
+            // Imgur's public anonymous-upload Client ID -- meant to be
+            // embedded in client apps, not a secret.
+            Authorization: 'Client-ID 546c25a59c58ad7',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Length': Buffer.byteLength(postData),
+          },
+          timeout: 10000,
+        },
+        (res) => {
+          let body = '';
+          res.on('data', (chunk) => (body += chunk));
+          res.on('end', () => {
+            try {
+              const json = JSON.parse(body);
+              if (json.success && json.data && json.data.link) {
+                const url = json.data.link;
+                artworkUrlCache.set(contentHash, url);
+                // Keep the cache from growing forever across a long session.
+                if (artworkUrlCache.size > 50) {
+                  const firstKey = artworkUrlCache.keys().next().value;
+                  artworkUrlCache.delete(firstKey);
+                }
+                resolve(url);
+              } else {
+                log.warn('Imgur upload did not return a link:', body.slice(0, 200));
+                resolve(null);
+              }
+            } catch (e) {
+              log.warn('Failed to parse Imgur response:', e.message);
+              resolve(null);
+            }
+          });
+        }
+      );
+
+      req.on('error', (e) => {
+        log.warn('Imgur upload request failed:', e.message);
+        resolve(null);
+      });
+      req.on('timeout', () => {
+        req.destroy();
+        log.warn('Imgur upload timed out');
+        resolve(null);
+      });
+
+      req.write(postData);
+      req.end();
+    });
+  }
+
   async function setPresence(track) {
     if (!connected || !rpc?.user) {
       log.warn('Skipped presence update — not connected to Discord yet');
@@ -204,10 +289,21 @@ function runApp() {
     const startTimestamp = Math.floor(now - track.position * 1000);
     const endTimestamp = Math.floor(now + (track.duration - track.position) * 1000);
 
+    // Try to use the real album art (uploaded to Imgur so Discord can fetch
+    // it); fall back to the app's static logo if there's no artwork or the
+    // upload fails for any reason.
+    let largeImage = 'itunes_logo';
+    if (track.artworkPath) {
+      const uploadedUrl = await uploadArtworkToImgur(track.artworkPath);
+      if (uploadedUrl) {
+        largeImage = uploadedUrl;
+      }
+    }
+
     const activity = {
       details: track.name || 'Unknown track',
       state: track.artist ? `by ${track.artist}` : 'Unknown artist',
-      largeImageKey: 'itunes_logo',
+      largeImageKey: largeImage,
       largeImageText: track.album || '',
       instance: false,
     };
