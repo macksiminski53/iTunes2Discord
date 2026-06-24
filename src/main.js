@@ -70,7 +70,7 @@ function runApp() {
     return normalPath;
   }
 
-  function getCurrentTrackWindows() {
+  function getCurrentTrackWindowsCOM() {
     return new Promise((resolve) => {
       const scriptPath = getScriptPath('get-track.ps1');
       const ps = spawn('powershell.exe', [
@@ -105,55 +105,58 @@ function runApp() {
     });
   }
 
-  function getCurrentTrackMac() {
+  function getCurrentTrackSMTC() {
     return new Promise((resolve) => {
-      const scriptPath = getScriptPath('get-track.applescript');
-      const osa = spawn('osascript', [scriptPath]);
+      const scriptPath = getScriptPath('get-track-smtc.ps1');
+      const ps = spawn('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', scriptPath,
+      ]);
 
       let stdout = '';
       let stderr = '';
 
-      osa.stdout.on('data', (d) => (stdout += d.toString()));
-      osa.stderr.on('data', (d) => (stderr += d.toString()));
+      ps.stdout.on('data', (d) => (stdout += d.toString()));
+      ps.stderr.on('data', (d) => (stderr += d.toString()));
 
-      osa.on('close', () => {
-        if (stderr) {
-          // This is where a denied Automation permission shows up
-          // (e.g. "Not authorized to send Apple events to Music").
-          log.warn('osascript stderr:', stderr.trim());
+      ps.on('close', () => {
+        if (stderr) log.warn('SMTC PowerShell stderr:', stderr.trim());
+        try {
+          const trimmed = stdout.trim();
+          if (!trimmed) return resolve({ state: 'not_running' });
+          resolve(JSON.parse(trimmed));
+        } catch (e) {
+          log.warn('Failed to parse SMTC PowerShell output:', stdout);
+          resolve({ state: 'not_running' });
         }
-        const trimmed = stdout.trim();
-        if (!trimmed || trimmed === 'not_running') return resolve({ state: 'not_running' });
-        if (trimmed === 'stopped') return resolve({ state: 'stopped' });
-
-        const parts = trimmed.split('<|>');
-        if (parts.length !== 6) {
-          log.warn('Unexpected AppleScript output:', trimmed);
-          return resolve({ state: 'not_running' });
-        }
-        const [state, name, artist, album, durationStr, positionStr] = parts;
-        resolve({
-          state,
-          name,
-          artist,
-          album,
-          duration: parseFloat(durationStr) || 0,
-          position: parseFloat(positionStr) || 0,
-        });
       });
 
-      osa.on('error', (err) => {
-        log.error('Failed to spawn osascript:', err.message);
+      ps.on('error', (err) => {
+        log.error('Failed to spawn SMTC PowerShell:', err.message);
         resolve({ state: 'not_running' });
       });
     });
   }
 
+  async function getCurrentTrackWindows() {
+    // Try classic iTunes (COM) first since it's the most full-featured
+    // source (gives us album artwork, which SMTC currently doesn't).
+    const fromItunes = await getCurrentTrackWindowsCOM();
+    if (fromItunes.state !== 'not_running') {
+      return fromItunes;
+    }
+    // iTunes isn't running or has nothing playing -- fall back to SMTC,
+    // which covers the Apple Music app for Windows (and other SMTC-aware
+    // apps) since Apple Music has no public automation API of its own.
+    return getCurrentTrackSMTC();
+  }
+
   function getCurrentTrack() {
     if (process.platform === 'win32') return getCurrentTrackWindows();
-    if (process.platform === 'darwin') return getCurrentTrackMac();
     if (!warnedUnsupportedPlatform) {
-      log.warn(`${APP_NAME} doesn't support platform "${process.platform}" yet (only Windows and macOS).`);
+      log.warn(`${APP_NAME} only supports Windows currently.`);
       warnedUnsupportedPlatform = true;
     }
     return Promise.resolve({ state: 'not_running' });
@@ -557,12 +560,6 @@ function runApp() {
 
   // ---- App lifecycle ----
   app.whenReady().then(() => {
-    // macOS: this is a menu-bar-only utility, not a Dock app — hide the
-    // Dock icon like other tray utilities (Bartender, Itsycal, etc).
-    if (process.platform === 'darwin' && app.dock) {
-      app.dock.hide();
-    }
-
     const iconPath = path.join(__dirname, '..', 'assets', 'tray-icon.png');
     tray = new Tray(nativeImage.createFromPath(iconPath));
     tray.setToolTip(`${APP_NAME} — starting...`);
