@@ -19,7 +19,7 @@
     "productName": "iTunes2Discord",
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon-source.png"
     },
     "nsis": {
       "oneClick": false,
