@@ -35,6 +35,8 @@
 //  "position":...,"artworkPath":...}
 
 using System;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -42,6 +44,10 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
+// "Encoder" is ambiguous between System.Drawing.Imaging.Encoder and
+// System.Text.Encoder (the latter pulled in transitively) -- this alias
+// pins it to the one we actually mean, used in SaveAsCompressedJpeg below.
+using DrawingEncoder = System.Drawing.Imaging.Encoder;
 
 internal static class Program
 {
@@ -143,9 +149,28 @@ internal static class Program
                                 var bytes = ms.ToArray();
                                 if (bytes.Length > 0)
                                 {
+                                    // Different SMTC apps hand back thumbnails in
+                                    // different formats and sizes -- confirmed
+                                    // directly: Apple Music gives a small real
+                                    // JPEG, but Windows Media Player gives an
+                                    // uncompressed BMP (~1.6MB for a 648x646
+                                    // image). Two separate problems followed
+                                    // from that: a BMP mislabeled as ".jpg" gets
+                                    // correctly rejected by Imgur, and even with
+                                    // the right extension, base64-encoding a
+                                    // ~1.6MB file (~2.1MB encoded) likely exceeds
+                                    // Imgur's anonymous-upload size limit --
+                                    // which fails at the infrastructure level
+                                    // (an S3-style XML error) rather than
+                                    // Imgur's own API, since the request never
+                                    // gets that far. Decoding and re-encoding as
+                                    // a compressed JPEG fixes both at once:
+                                    // correct format, and file size in the same
+                                    // small ballpark Apple Music's JPEGs were
+                                    // already working fine.
                                     var tempDir = Path.GetTempPath();
                                     var artFile = Path.Combine(tempDir, "itunes2discord-smtc-artwork.jpg");
-                                    File.WriteAllBytes(artFile, bytes);
+                                    SaveAsCompressedJpeg(bytes, artFile);
                                     artworkPath = artFile;
                                 }
                             }
@@ -188,5 +213,29 @@ internal static class Program
     private static void WriteState(string state)
     {
         Console.WriteLine(JsonSerializer.Serialize(new { state }));
+    }
+
+    // Decodes whatever image format the thumbnail came in (JPEG, BMP, PNG --
+    // System.Drawing's Image.FromStream auto-detects this, no need to guess)
+    // and re-encodes it as a JPEG at moderate quality. This guarantees two
+    // things every time, regardless of source app: the file Imgur receives
+    // is always a real, valid JPEG (never a mislabeled BMP/PNG), and it's
+    // always reasonably small (typically tens of KB, not the ~1.6MB an
+    // uncompressed BMP thumbnail came in at) -- both were real causes of
+    // upload failures we hit with Windows Media Player specifically.
+    private static void SaveAsCompressedJpeg(byte[] sourceBytes, string outputPath)
+    {
+        using (var inputStream = new MemoryStream(sourceBytes))
+        using (var image = Image.FromStream(inputStream))
+        {
+            var jpegCodec = ImageCodecInfo
+                .GetImageDecoders()
+                .First(c => c.FormatID == ImageFormat.Jpeg.Guid);
+
+            var encoderParams = new EncoderParameters(1);
+            encoderParams.Param[0] = new EncoderParameter(DrawingEncoder.Quality, 85L);
+
+            image.Save(outputPath, jpegCodec, encoderParams);
+        }
     }
 }

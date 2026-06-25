@@ -25,6 +25,17 @@
     <PublishSingleFile>true</PublishSingleFile>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- Needed for Program.cs's BMP-to-JPEG re-encoding (confirmed needed:
+         Windows Media Player's SMTC thumbnail came back as an uncompressed
+         ~1.6MB BMP, too large/wrong-format for Imgur's anonymous upload).
+         System.Drawing.Common works fine here since we already target
+         net8.0-windows specifically. This package is Windows-only, which
+         is exactly what we are. -->
+    <UseWindowsForms>false</UseWindowsForms>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Drawing.Common" Version="8.0.8" />
+  </ItemGroup>
 
 </Project>

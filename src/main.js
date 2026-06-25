@@ -481,11 +481,33 @@ function runApp() {
     });
   }
 
+  function detectImageMimeType(data) {
+    // Same root issue as smtc-helper.exe's old hardcoded ".jpg": different
+    // SMTC apps (Apple Music vs Windows Media Player, observed directly)
+    // can hand back thumbnails in different image formats. Detecting the
+    // real format from the file's magic bytes, rather than assuming JPEG,
+    // avoids mislabeling a PNG/BMP in a way that could fail to render.
+    if (data.length >= 8 && data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47) {
+      return 'image/png';
+    }
+    if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) {
+      return 'image/jpeg';
+    }
+    if (data.length >= 2 && data[0] === 0x42 && data[1] === 0x4d) {
+      return 'image/bmp';
+    }
+    if (data.length >= 6 && data[0] === 0x47 && data[1] === 0x49 && data[2] === 0x46) {
+      return 'image/gif';
+    }
+    return 'image/jpeg';
+  }
+
   function artworkToDataUrl(artworkPath) {
     if (!artworkPath) return null;
     try {
       const data = fs.readFileSync(artworkPath);
-      return `data:image/jpeg;base64,${data.toString('base64')}`;
+      const mimeType = detectImageMimeType(data);
+      return `data:${mimeType};base64,${data.toString('base64')}`;
     } catch (e) {
       return null;
     }
