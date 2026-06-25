@@ -46,6 +46,18 @@ let liveAnchorMs = 0;
 function reanchor(newTrack) {
   liveTrack = newTrack;
   liveAnchorMs = Date.now();
+  // Repaint immediately on every reanchor, not just on the next 1s tick.
+  // Without this, there's a window (up to ~1s) where the screen still shows
+  // a value extrapolated from the OLD anchor even though we already have
+  // fresher, more accurate data -- and because the setInterval below runs on
+  // its own independent schedule rather than one realigned to each reanchor,
+  // whichever of the two "wins" a given instant was effectively random. That
+  // produced visible back-and-forth: a stale extrapolated frame occasionally
+  // rendering after a fresher one, depending on exact timing. Painting right
+  // here removes that race -- the freshest data is always shown the moment
+  // it arrives, and the interval below just keeps things moving smoothly in
+  // between arrivals.
+  paintTime();
 }
 
 function paintTime() {
