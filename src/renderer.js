@@ -25,37 +25,27 @@ function formatTime(seconds) {
 }
 
 // ---- Local real-time ticking ----
-// state-update now arrives every ~3s (the local poll rate -- separate from
-// the slower 15s floor on actual Discord pushes). We keep our own clock
-// here: remember the position we were told and the wall-clock moment we
-// were told it, then every second we extrapolate forward -- exactly how
-// Discord's own elapsed-time bar already behaves, just mirrored locally in
-// this window.
+// state-update arrives every ~3s (the local poll rate -- separate from the
+// slower 15s floor on actual Discord pushes). Between updates we extrapolate
+// the displayed position forward locally, once per second, so the bar/timer
+// flow smoothly instead of only moving every 3s.
+//
+// Every state-update re-anchors to the freshly-reported position -- that
+// reading is always more trustworthy than our local extrapolation, so we
+// don't try to "ignore small disagreements" the way an earlier version of
+// this code did. That earlier approach caused a real bug: when a poll's
+// reported position differed from our running estimate by less than its
+// tolerance, the code skipped resyncing entirely, so any drift between the
+// real position and our local clock (e.g. from the source's own measurement
+// lag, or just accumulated rounding) persisted and compounded forever
+// instead of ever being corrected -- it looked like the displayed time
+// quietly running ahead of or behind the real song.
 let liveTrack = null;
 let liveAnchorMs = 0;
 
-// Avoids a visible timer "jump" when a state-update fires for a reason
-// unrelated to playback (e.g. toggling the app's own Pause syncing switch,
-// which resends whatever track data was last cached) -- or just ordinary
-// jitter in what the OS/iTunes reports each poll. We only trust new data
-// enough to reset the anchor if the song, the play/pause state, or the
-// reported position meaningfully disagrees with what we'd already predict.
-// The tolerance here matters a lot now that polling happens every ~3s
-// instead of the original 15s: a value tuned for occasional 15s check-ins
-// was too tight once checked 5x more often, since normal reporting noise
-// (the source rounding to whole seconds, a poll landing a beat early/late)
-// started tripping it almost every cycle -- which looked exactly like the
-// timer "skipping ahead in chunks" instead of ticking smoothly. A real
-// seek/scrub is usually a jump of several seconds at minimum, so widening
-// this still catches genuine seeks without reacting to routine jitter.
-function shouldReanchor(newTrack) {
-  if (!liveTrack) return true;
-  if (liveTrack.name !== newTrack.name || liveTrack.artist !== newTrack.artist) return true;
-  if (liveTrack.state !== newTrack.state) return true;
-  const predicted = liveTrack.state === 'playing'
-    ? (liveTrack.position || 0) + (Date.now() - liveAnchorMs) / 1000
-    : (liveTrack.position || 0);
-  return Math.abs(predicted - (newTrack.position || 0)) > 5;
+function reanchor(newTrack) {
+  liveTrack = newTrack;
+  liveAnchorMs = Date.now();
 }
 
 function paintTime() {
@@ -100,10 +90,7 @@ function render(state) {
     elTrackName.textContent = track.name || 'Unknown track';
     elTrackArtist.textContent = track.artist || 'Unknown artist';
 
-    if (shouldReanchor(track)) {
-      liveAnchorMs = Date.now();
-    }
-    liveTrack = track;
+    reanchor(track);
     paintTime();
 
     if (track.artworkDataUrl) {
