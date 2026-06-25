@@ -75,13 +75,12 @@ function runApp() {
   let enabled = true;
   let warnedUnsupportedPlatform = false;
 
-  // ---- Logging (writes to %APPDATA%/musictodiscord/logs on Windows,
-  // ~/Library/Logs/musictodiscord on macOS) ----
+  // ---- Logging (writes to %APPDATA%/musictodiscord/logs) ----
   log.transports.file.level = 'info';
   log.transports.console.level = 'info';
   autoUpdater.logger = log;
 
-  // ---- Track polling (Windows: PowerShell/COM against iTunes. macOS: AppleScript against Music/iTunes) ----
+  // ---- Track polling (PowerShell: COM against iTunes, falling back to SMTC for Apple Music) ----
   function getScriptPath(filename) {
     const normalPath = path.join(__dirname, filename);
     // When packaged, asarUnpack extracts this file to a parallel
@@ -319,7 +318,7 @@ function runApp() {
     // Try to use the real album art (uploaded to Imgur so Discord can fetch
     // it); fall back to the app's static logo if there's no artwork or the
     // upload fails for any reason.
-    let largeImage = 'itunes_logo';
+    let largeImage = 'app_logo';
     if (track.artworkPath) {
       const uploadedUrl = await uploadArtworkToImgur(track.artworkPath);
       if (uploadedUrl) {

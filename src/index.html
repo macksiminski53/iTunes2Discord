@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>iTunes2Discord</title>
+<title>MusicToDiscord</title>
 <style>
   :root {
     --bg: #0F0F14;
@@ -113,7 +113,7 @@
     align-items: center;
     justify-content: center;
   }
-  #art-fallback svg { width: 36px; height: 36px; opacity: 0.85; }
+  #art-fallback img { width: 100%; height: 100%; object-fit: cover; }
 
   #track-meta {
     position: relative;
@@ -214,6 +214,37 @@
     color: var(--text-dim);
   }
 
+  #timer-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2px 28px 14px;
+  }
+
+  #timer-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+
+  #timer-display {
+    font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
+    font-size: 36px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.5px;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    transition: color 0.2s;
+  }
+
+  #timer-display.paused {
+    color: var(--text-dim);
+  }
+
   /* ---- Divider ---- */
   .divider {
     height: 1px;
@@ -303,7 +334,7 @@
 <body>
 
   <div id="drag-region">
-    <span class="app-label">ITUNES2DISCORD</span>
+    <span class="app-label">MUSIC TO DISCORD</span>
     <button class="win-btn" id="btn-min" title="Minimize to tray" aria-label="Minimize to tray">&#8211;</button>
     <button class="win-btn" id="btn-close" title="Close" aria-label="Close window">&#10005;</button>
   </div>
@@ -312,18 +343,19 @@
     <div id="art-wrap">
       <img id="art-img" alt="" />
       <div id="art-fallback">
-        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M9 17V5l11-2v12" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-          <circle cx="6" cy="17" r="3" stroke="white" stroke-width="1.6"/>
-          <circle cx="17" cy="15" r="3" stroke="white" stroke-width="1.6"/>
-        </svg>
+        <img src="../assets/fallback-art.png" alt="" />
       </div>
     </div>
     <div id="track-meta">
       <div id="eyebrow"><span id="status-dot"></span><span id="status-text">Checking…</span></div>
       <div id="track-name">Nothing playing</div>
-      <div id="track-artist">Open iTunes and press play</div>
+      <div id="track-artist">Open Apple Music and press play</div>
     </div>
+  </div>
+
+  <div id="timer-wrap">
+    <div id="timer-label">Time left</div>
+    <div id="timer-display">0:00</div>
   </div>
 
   <div id="groove-wrap">
@@ -344,7 +376,7 @@
     <div class="row">
       <div>
         <div class="row-label">Sync with Discord</div>
-        <div class="row-sub" id="sync-sub">Updates your status while iTunes plays</div>
+        <div class="row-sub" id="sync-sub">Updates your status while your music plays</div>
       </div>
       <div class="toggle on" id="toggle-sync" role="switch" aria-checked="true" tabindex="0"></div>
     </div>
@@ -357,7 +389,7 @@
     </div>
     <div class="row">
       <div>
-        <div class="row-label">Quit iTunes2Discord</div>
+        <div class="row-label">Quit MusicToDiscord</div>
         <div class="row-sub">Stops syncing and closes the app</div>
       </div>
       <button class="pill-btn danger" id="btn-quit">Quit</button>

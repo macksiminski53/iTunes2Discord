@@ -1,7 +1,7 @@
 // src/preload.js
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('itunes2discord', {
+contextBridge.exposeInMainWorld('musicToDiscord', {
   // Renderer asks for the latest known track/connection state on load
   getState: () => ipcRenderer.invoke('get-state'),
 

@@ -1,46 +1,57 @@
-# iTunes2Discord
+# MusicToDiscord
 
-Shows what you're playing in iTunes (Windows) or Music (macOS) as your Discord status — e.g. **"Listening to iTunes — Blinding Lights by The Weeknd"** with a live progress bar.
+Shows what you're playing in iTunes or Apple Music (Windows) as your Discord
+status — e.g. **"Listening to MusicToDiscord — Blinding Lights by The
+Weeknd"** with a live countdown timer.
 
-![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+![platform](https://img.shields.io/badge/platform-Windows-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
 ---
 
 ## Install (for users)
 
-### Windows
+1. Go to the [Releases page](../../releases) and download the latest
+   `MusicToDiscord-Setup-x.x.x.exe`.
+2. Run it. Windows may show a "Windows protected your PC" SmartScreen warning
+   since this isn't a paid-signed app yet — click **More info → Run anyway**.
+3. Once installed, a small music-note icon appears in your system tray, and
+   the app's status window opens automatically.
+4. Make sure the **Discord desktop app** (not browser) is open and you're
+   logged in.
+5. Play something in iTunes or Apple Music — your Discord status updates
+   within ~15 seconds.
 
-1. Go to the [Releases page](../../releases) and download the latest `iTunes2Discord-Setup-x.x.x.exe`.
-2. Run it. Windows may show a "Windows protected your PC" SmartScreen warning since this isn't a paid-signed app yet — click **More info → Run anyway**.
-3. Once installed, a small music-note icon appears in your system tray.
-4. Make sure the **Discord desktop app** (not browser) is open and you're logged in.
-5. Play something in iTunes — your Discord status updates within ~15 seconds.
-
-### macOS (may not work)
-
-1. Go to the [Releases page](../../releases) and download the latest `iTunes2Discord-x.x.x.dmg`.
-2. Open the dmg and drag iTunes2Discord into Applications.
-3. Launch it. Since this isn't a notarized app yet, macOS Gatekeeper will refuse to open it the normal way — **right-click (or Control-click) the app → Open → Open** instead of double-clicking. You only need to do this once.
-4. A small music-note icon appears in your menu bar (top right). The app has no Dock icon by design.
-5. The first time it checks what's playing, macOS will ask **"iTunes2Discord wants access to control Music"** — click **OK**. If you accidentally click "Don't Allow," you can re-enable it under **System Settings → Privacy & Security → Automation → iTunes2Discord → Music**.
-6. Make sure the **Discord desktop app** (not browser) is open and you're logged in.
-7. Play something in Music — your Discord status updates within ~15 seconds.
-
-Both platforms: the app hopefully auto-updates itself in the background, and auto-checks for new versions on startup. Click the tray/menu-bar icon any time to pause syncing, check for updates, or quit.
-
+The app auto-updates itself in the background and auto-checks for new
+versions on startup. Click the tray icon any time to reopen the window,
+pause syncing, check for updates, or quit. Double-clicking the Desktop or
+Start Menu shortcut while it's already running will bring the window back
+to front instead of doing nothing.
 
 ### Requirements
-- **Windows:** Windows 10/11, classic iTunes app installed (not the Apple Music Windows preview app — it doesn't expose the same automation interface), Discord desktop app.
-- **macOS:** macOS 10.15 (Catalina) or later with the built-in Music app (older systems with classic iTunes are also supported), Discord desktop app.
+- Windows 10/11
+- Either classic iTunes or the Apple Music app installed
+- Discord desktop app (not the browser version)
 
 ---
 
 ## How it works
 
-- **Windows:** a bundled PowerShell script queries iTunes' built-in COM automation interface for the current track, artist, album, and playback position. It only does this if iTunes is already running — it never launches iTunes on its own.
-- **macOS:** a bundled AppleScript queries Music's (or legacy iTunes') scripting interface the same way. It checks the process list first so it never launches Music in the background either.
-- The app polls this every 15 seconds and forwards it to Discord via Discord's local Rich Presence (RPC) connection — the same mechanism Spotify and games use.
-- Nothing is uploaded anywhere; everything stays on your machine and goes only to your own Discord client.
+- A bundled PowerShell script first queries iTunes' built-in COM automation
+  interface for the current track. If iTunes isn't running, it falls back to
+  a second script that reads Windows' System Media Transport Controls (SMTC)
+  instead — this is what covers the Apple Music app, since it has no
+  automation interface of its own. Neither script ever launches an app that
+  isn't already open.
+- The app polls this every 15 seconds and forwards it to Discord via
+  Discord's local Rich Presence (RPC) connection — the same mechanism
+  Spotify and games use.
+- Between polls, the app's own window keeps a local one-second clock running
+  so the countdown timer flows smoothly instead of jumping every 15 seconds.
+  It freezes the instant playback is paused and picks back up exactly where
+  it left off when you hit play again.
+- Album art is uploaded anonymously to Imgur (no account needed) so Discord
+  can display it — nothing else about your music or activity is uploaded
+  anywhere.
 
 ---
 
@@ -53,46 +64,49 @@ npm install
 npm start
 ```
 
-`npm start` runs the app locally on whatever OS you're developing on — the code automatically picks the right track-polling method (PowerShell on Windows, AppleScript on macOS).
-
 ### Releasing a new version (maintainer only)
 
-This repo uses GitHub Actions to auto-build and publish installers for **both** platforms:
+This repo uses GitHub Actions to auto-build and publish the Windows
+installer:
 
-1. Bump the version in `package.json` (e.g. `1.2.1`).
+1. Bump the version in `package.json` (e.g. `1.4.0`).
 2. Commit, then tag and push:
    ```
    git add .
-   git commit -m "Bump to 1.2.1"
-   git tag v1.2.1
+   git commit -m "Bump to 1.4.0"
+   git tag v1.4.0
    git push origin main --tags
    ```
-3. GitHub Actions spins up a `windows-latest` and a `macos-latest` runner, builds both installers, and publishes them to the Releases page automatically. Existing installs will offer the update to users via `electron-updater` within a few hours.
+3. GitHub Actions spins up a `windows-latest` runner, builds the installer,
+   and publishes it to the Releases page automatically. Existing installs
+   will offer the update to users via `electron-updater` within a few hours.
 
-No `GH_TOKEN` setup needed — GitHub Actions provides one automatically with the right permissions for the same repo.
-
-**Note on macOS builds:** without an Apple Developer ID certificate configured (`CSC_LINK`/`CSC_KEY_PASSWORD` secrets), the macOS build is unsigned and un-notarized. It still builds and works fine, but users see the Gatekeeper "right-click → Open" step above. If you get a paid Apple Developer account later, add those secrets and electron-builder will sign the build, and it can also be notarized for a smoother install.
+No `GH_TOKEN` setup needed — GitHub Actions provides one automatically with
+the right permissions for the same repo.
 
 ---
 
 ## Troubleshooting
 
-### Windows
-- **SmartScreen blocks the installer** — expected for unsigned apps; click "More info → Run anyway." A future release may add code signing.
-- **Tray says "Not connected to Discord"** — open the Discord desktop app and log in.
-- **Status never updates** — confirm you're using classic iTunes, not the Apple Music preview app; right-click the tray icon to see what it currently detects.
-
-### macOS
-- **"App is damaged and can't be opened" / Gatekeeper blocks it** — right-click the app → Open → Open (only needed the first time).
-- **Status never updates / "Not authorized" in the logs** — go to **System Settings → Privacy & Security → Automation** and make sure iTunes2Discord has permission to control Music. If it's missing from the list, quit the app, remove it under Automation, relaunch, and approve the prompt when it appears.
-- **Menu-bar icon says "Not connected to Discord"** — open the Discord desktop app and log in.
-
-### Both platforms
+- **SmartScreen blocks the installer** — expected for unsigned apps; click
+  "More info → Run anyway." A future release may add code signing.
+- **Tray says "Not connected to Discord"** — open the Discord desktop app
+  and log in.
+- **Status never updates** — make sure either iTunes or Apple Music is
+  actually open and playing; right-click the tray icon to see what it
+  currently detects.
+- **Discord shows nothing at all, even though the app says connected** — go
+  to Discord's **Settings → Activity Privacy** and make sure "Display
+  current activity as a status message" is turned on. This setting is
+  separate from the app entirely.
 - **Status disappears when paused/stopped** — expected behavior.
 
 ## Contributing
 
-Issues and pull requests welcome. This is a small personal-use utility, not an official Apple/Discord product — see [Discord's Developer Policy](https://discord.com/developers/docs/policies-and-agreements/developer-policy) for the rules this kind of integration follows.
+Issues and pull requests welcome. This is a small personal-use utility, not
+an official Apple/Discord product — see
+[Discord's Developer Policy](https://discord.com/developers/docs/policies-and-agreements/developer-policy)
+for the rules this kind of integration follows.
 
 ## License
 
