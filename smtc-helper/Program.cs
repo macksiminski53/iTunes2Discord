@@ -56,18 +56,40 @@ internal static class Program
                 return 0;
             }
 
+            // Originally this only matched Apple Music/iTunes by app ID, since
+            // that's the gap we built this for (no public automation API).
+            // But SMTC is a general Windows media-session system -- Spotify,
+            // browsers playing YouTube Music/SoundCloud/etc, Windows Media
+            // Player, and most modern media apps all register with it the
+            // same way, with zero extra code needed on our end. So we now
+            // accept any session Windows reports, rather than filtering by
+            // app ID at all.
+            //
+            // With that widened, a real question comes up: what if more than
+            // one app has an active session at once (e.g. Spotify playing in
+            // the background while a YouTube tab sits paused)? We prefer
+            // whichever session is actually PLAYING; a paused/stopped one is
+            // only used as a last resort if nothing else is playing. Without
+            // this, we'd just take whatever Windows happens to list first,
+            // which could easily show a paused tab's stale info instead of
+            // the song that's actually audible right now.
             GlobalSystemMediaTransportControlsSession session = null;
+            GlobalSystemMediaTransportControlsSession fallbackSession = null;
             foreach (var s in manager.GetSessions())
             {
-                var appId = s.SourceAppUserModelId ?? string.Empty;
-                if (appId.IndexOf("AppleInc.AppleMusicWin", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    appId.IndexOf("iTunes", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    appId.IndexOf("AppleMusic", StringComparison.OrdinalIgnoreCase) >= 0)
+                var info = s.GetPlaybackInfo();
+                if (info.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
                 {
                     session = s;
                     break;
                 }
+                if (fallbackSession == null &&
+                    info.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
+                {
+                    fallbackSession = s;
+                }
             }
+            if (session == null) session = fallbackSession;
 
             if (session == null)
             {

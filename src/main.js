@@ -185,8 +185,13 @@ function runApp() {
       return fromItunes;
     }
     // iTunes isn't running or has nothing playing -- fall back to SMTC,
-    // which covers the Apple Music app for Windows (and other SMTC-aware
-    // apps) since Apple Music has no public automation API of its own.
+    // Windows' general media-session system. This was originally added
+    // just to cover the Apple Music app for Windows (no public automation
+    // API of its own), but SMTC isn't Apple-Music-specific: Spotify,
+    // browser tabs playing YouTube Music/SoundCloud/etc, and most other
+    // modern media apps register with it too, so this fallback now picks
+    // up any of them automatically -- preferring whichever app is actually
+    // playing if more than one has a session open at once.
     return getCurrentTrackSMTC();
   }
 
