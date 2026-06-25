@@ -80,7 +80,8 @@ function runApp() {
   log.transports.console.level = 'info';
   autoUpdater.logger = log;
 
-  // ---- Track polling (PowerShell: COM against iTunes, falling back to SMTC for Apple Music) ----
+  // ---- Track polling (PowerShell/COM against iTunes, falling back to a
+  // compiled smtc-helper.exe for Apple Music and other SMTC-aware apps) ----
   function getScriptPath(filename) {
     const normalPath = path.join(__dirname, filename);
     // When packaged, asarUnpack extracts this file to a parallel
@@ -128,36 +129,49 @@ function runApp() {
     });
   }
 
+  function getSmtcHelperPath() {
+    // smtc-helper.exe is a separately-compiled C# program (not a script),
+    // because PowerShell genuinely cannot extract the SMTC thumbnail bytes
+    // -- two different ways, for two different structural reasons (see the
+    // long comment at the top of smtc-helper/Program.cs for the full
+    // story). It's bundled via electron-builder's "extraResources", NOT
+    // asarUnpack, so -- unlike get-track.ps1 -- it never lives inside the
+    // .asar at all and doesn't need the app.asar.unpacked rewrite trick.
+    // extraResources lands directly in process.resourcesPath when packaged
+    // (e.g. .../resources/smtc-helper/smtc-helper.exe); in dev mode (running
+    // via `npm start`, not a built installer) it's just a sibling folder of
+    // the project root instead.
+    if (app.isPackaged) {
+      return path.join(process.resourcesPath, 'smtc-helper', 'smtc-helper.exe');
+    }
+    return path.join(__dirname, '..', 'smtc-helper', 'publish', 'smtc-helper.exe');
+  }
+
   function getCurrentTrackSMTC() {
     return new Promise((resolve) => {
-      const scriptPath = getScriptPath('get-track-smtc.ps1');
-      const ps = spawn('powershell.exe', [
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy', 'Bypass',
-        '-File', scriptPath,
-      ]);
+      const exePath = getSmtcHelperPath();
+      const proc = spawn(exePath, []);
 
       let stdout = '';
       let stderr = '';
 
-      ps.stdout.on('data', (d) => (stdout += d.toString()));
-      ps.stderr.on('data', (d) => (stderr += d.toString()));
+      proc.stdout.on('data', (d) => (stdout += d.toString()));
+      proc.stderr.on('data', (d) => (stderr += d.toString()));
 
-      ps.on('close', () => {
-        if (stderr) log.warn('SMTC PowerShell stderr:', stderr.trim());
+      proc.on('close', () => {
+        if (stderr) log.warn('smtc-helper stderr:', stderr.trim());
         try {
           const trimmed = stdout.trim();
           if (!trimmed) return resolve({ state: 'not_running' });
           resolve(JSON.parse(trimmed));
         } catch (e) {
-          log.warn('Failed to parse SMTC PowerShell output:', stdout);
+          log.warn('Failed to parse smtc-helper output:', stdout);
           resolve({ state: 'not_running' });
         }
       });
 
-      ps.on('error', (err) => {
-        log.error('Failed to spawn SMTC PowerShell:', err.message);
+      proc.on('error', (err) => {
+        log.error('Failed to spawn smtc-helper.exe:', err.message);
         resolve({ state: 'not_running' });
       });
     });

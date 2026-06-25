@@ -25,19 +25,29 @@ function formatTime(seconds) {
 }
 
 // ---- Local real-time ticking ----
-// state-update only arrives once per poll (every 15s), which made the
-// progress bar visibly jump instead of flowing. We keep our own clock here:
-// remember the position we were told and the wall-clock moment we were told
-// it, then every second we extrapolate forward — exactly how Discord's own
-// elapsed-time bar already behaves, just mirrored locally in this window.
+// state-update now arrives every ~3s (the local poll rate -- separate from
+// the slower 15s floor on actual Discord pushes). We keep our own clock
+// here: remember the position we were told and the wall-clock moment we
+// were told it, then every second we extrapolate forward -- exactly how
+// Discord's own elapsed-time bar already behaves, just mirrored locally in
+// this window.
 let liveTrack = null;
 let liveAnchorMs = 0;
 
 // Avoids a visible timer "jump" when a state-update fires for a reason
 // unrelated to playback (e.g. toggling the app's own Pause syncing switch,
-// which resends whatever track data was last cached). We only trust new
-// data enough to reset the anchor if the song, the play/pause state, or the
+// which resends whatever track data was last cached) -- or just ordinary
+// jitter in what the OS/iTunes reports each poll. We only trust new data
+// enough to reset the anchor if the song, the play/pause state, or the
 // reported position meaningfully disagrees with what we'd already predict.
+// The tolerance here matters a lot now that polling happens every ~3s
+// instead of the original 15s: a value tuned for occasional 15s check-ins
+// was too tight once checked 5x more often, since normal reporting noise
+// (the source rounding to whole seconds, a poll landing a beat early/late)
+// started tripping it almost every cycle -- which looked exactly like the
+// timer "skipping ahead in chunks" instead of ticking smoothly. A real
+// seek/scrub is usually a jump of several seconds at minimum, so widening
+// this still catches genuine seeks without reacting to routine jitter.
 function shouldReanchor(newTrack) {
   if (!liveTrack) return true;
   if (liveTrack.name !== newTrack.name || liveTrack.artist !== newTrack.artist) return true;
@@ -45,7 +55,7 @@ function shouldReanchor(newTrack) {
   const predicted = liveTrack.state === 'playing'
     ? (liveTrack.position || 0) + (Date.now() - liveAnchorMs) / 1000
     : (liveTrack.position || 0);
-  return Math.abs(predicted - (newTrack.position || 0)) > 2.5;
+  return Math.abs(predicted - (newTrack.position || 0)) > 5;
 }
 
 function paintTime() {

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- netX.0-windows10.0.19041.0 pulls in the real, modern WinRT
+         projections (via the Microsoft.Windows.SDK.Contracts machinery
+         built into the Windows-targeted .NET SDK). This is what actually
+         resolves Windows.Media.Control and Windows.Storage.Streams
+         correctly, unlike PowerShell's Add-Type/CodeDom path, which cannot
+         load raw .winmd files at all. We publish this self-contained (see
+         BUILD_INSTRUCTIONS.md) so end users don't need any .NET runtime
+         installed at all; the exact major version here barely matters
+         once that's true, since it's bundled rather than relied upon. -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <RootNamespace>MusicToDiscord.SmtcHelper</RootNamespace>
+    <AssemblyName>smtc-helper</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!-- Self-contained + single-file: bundles the .NET runtime itself into
+         smtc-helper.exe, so it runs on any Windows machine regardless of
+         what (if anything) is installed there. This matters a lot once
+         the app is shipped to other people, not just your own dev PC. -->
+    <PlatformTarget>x64</PlatformTarget>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+</Project>
