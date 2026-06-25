@@ -12,14 +12,23 @@ const { spawn } = require('child_process');
 // is already registered) can race with a second instance briefly starting
 // up before it's told to quit. Doing it first, before any other Electron
 // API is used, avoids that.
+// Forward reference: the second-instance listener below must be registered
+// before runApp() executes (see comment above on why), but createWindow()
+// itself isn't defined until runApp() runs. This lets the early listener
+// call whatever runApp() later assigns here, instead of referencing a
+// function that doesn't exist in this scope yet.
+let showWindowFromOtherInstance = () => {};
+
 const gotLock = app.requestSingleInstanceLock();
 
 if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    // Tray-only app, nothing to focus — just let the existing instance
-    // keep running and let this second launch exit quietly.
+    // Someone double-clicked the Desktop/Start Menu shortcut (or relaunched
+    // the .exe) while we were already running quietly in the tray. Bring
+    // the live status window to front instead of silently ignoring it.
+    showWindowFromOtherInstance();
   });
 
   runApp();
@@ -33,12 +42,26 @@ function runApp() {
   // ---- CONFIG ----
   // This is the app's Discord Application/Client ID (created once by the developer
   // at https://discord.com/developers/applications). End users do NOT need their
-  // own ID -- everyone using iTunes2Discord shares this one, same as how every
+  // own ID -- everyone using MusicToDiscord shares this one, same as how every
   // Spotify user shares Spotify's single Discord integration.
   const CLIENT_ID = '1518362803008831769';
 
-  const POLL_INTERVAL_MS = 15000; // how often to check iTunes/Music (15s is safe re: rate limits)
-  const APP_NAME = 'iTunes2Discord';
+  // Polling the music source (iTunes/SMTC) and pushing to Discord are now
+  // decoupled. Discord's own docs say Rich Presence updates are rate-limited
+  // to roughly one per 15 seconds, and calling setActivity too often doesn't
+  // just get ignored -- it can make the presence stop updating and then go
+  // blank entirely until calls stop for a while. So:
+  //   - POLL_INTERVAL_MS: how often we check what's playing. Fast, since this
+  //     only touches the local window/tray (no Discord call), so there's no
+  //     rate-limit risk in checking often.
+  //   - DISCORD_PUSH_MIN_INTERVAL_MS: the minimum time between actual
+  //     setActivity calls. Track changes / resume-from-pause / first poll
+  //     always push immediately regardless of this floor, since those are
+  //     one-off events, not repeated spam -- only the "same song, just
+  //     refreshing position" case gets throttled.
+  const POLL_INTERVAL_MS = 3000;
+  const DISCORD_PUSH_MIN_INTERVAL_MS = 15000;
+  const APP_NAME = 'MusicToDiscord';
 
   let tray = null;
   let mainWindow = null;
@@ -46,13 +69,14 @@ function runApp() {
   let connected = false;
   let lastTrackKey = null;
   let lastPosition = null;
+  let lastDiscordPushAt = 0; // Date.now() of the last actual setActivity call
   let lastTrackState = null; // cached for the window's initial state request
   let pollTimer = null;
   let enabled = true;
   let warnedUnsupportedPlatform = false;
 
-  // ---- Logging (writes to %APPDATA%/itunes2discord/logs on Windows,
-  // ~/Library/Logs/itunes2discord on macOS) ----
+  // ---- Logging (writes to %APPDATA%/musictodiscord/logs on Windows,
+  // ~/Library/Logs/musictodiscord on macOS) ----
   log.transports.file.level = 'info';
   log.transports.console.level = 'info';
   autoUpdater.logger = log;
@@ -364,10 +388,19 @@ function runApp() {
           lastPosition !== null &&
           track.position < lastPosition - 3;
 
-        if (key !== lastTrackKey || positionRewound || !firstPollDone) {
+        // Track changed, rewound, or this is the very first poll -> always
+        // push to Discord right away, no throttling (these are one-off
+        // events, not repeated spam). Otherwise (same song, same poll-to-poll
+        // refresh) only push if the 15s floor has actually elapsed, so a fast
+        // 3s local poll doesn't turn into a 3s Discord call rate.
+        const isNewEvent = key !== lastTrackKey || positionRewound || !firstPollDone;
+        const pushFloorElapsed = Date.now() - lastDiscordPushAt >= DISCORD_PUSH_MIN_INTERVAL_MS;
+
+        if (isNewEvent || pushFloorElapsed) {
           const pushedOk = await setPresence(track);
           if (pushedOk) {
             lastTrackKey = key;
+            lastDiscordPushAt = Date.now();
           }
           updateTrayTooltip(`${track.state === 'playing' ? '▶' : '⏸'} ${track.name} — ${track.artist}`);
           log.info('Now:', track.state, track.name, '-', track.artist);
@@ -560,6 +593,8 @@ function runApp() {
 
   // ---- App lifecycle ----
   app.whenReady().then(() => {
+    showWindowFromOtherInstance = createWindow;
+
     const iconPath = path.join(__dirname, '..', 'assets', 'tray-icon.png');
     tray = new Tray(nativeImage.createFromPath(iconPath));
     tray.setToolTip(`${APP_NAME} — starting...`);
@@ -569,6 +604,11 @@ function runApp() {
     // context menu via setContextMenu, which Electron handles separately
     // from this click event on Windows/Linux).
     tray.on('click', () => createWindow());
+
+    // Open the window on launch too — clicking the app's own icon (Desktop
+    // or Start Menu shortcut) should feel like opening a normal app, not
+    // silently dropping you into the tray with no visible window at all.
+    createWindow();
 
     connectDiscord();
     pollLoop();
