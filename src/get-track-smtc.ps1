@@ -40,8 +40,6 @@ try {
     [void][Windows.Media.Control.GlobalSystemMediaTransportControlsSession, Windows.Media.Control, ContentType = WindowsRuntime]
     [void][Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties, Windows.Media.Control, ContentType = WindowsRuntime]
     [void][Windows.Storage.Streams.IRandomAccessStreamReference, Windows.Storage.Streams, ContentType = WindowsRuntime]
-    [void][Windows.Storage.Streams.IRandomAccessStreamWithContentType, Windows.Storage.Streams, ContentType = WindowsRuntime]
-    [void][Windows.Storage.Streams.DataReader, Windows.Storage.Streams, ContentType = WindowsRuntime]
 
     $managerOp = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()
     $manager = Await $managerOp ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
@@ -51,19 +49,16 @@ try {
         exit 0
     }
 
-    $session = $manager.GetCurrentSession()
-
-    if ($null -eq $session) {
-        Write-Output '{"state":"not_running"}'
-        exit 0
+    $session = $null
+    $allSessions = $manager.GetSessions()
+    foreach ($s in $allSessions) {
+        if ($s.SourceAppUserModelId -match 'AppleInc\.AppleMusicWin|iTunes|AppleMusic') {
+            $session = $s
+            break
+        }
     }
 
-    # Optional: only trust sessions that look like Apple Music, to avoid
-    # accidentally reporting on some other unrelated app the system thinks
-    # is "current" (e.g. a browser tab that briefly played a notification
-    # sound). Comment this filter out to allow ANY SMTC source.
-    $appId = $session.SourceAppUserModelId
-    if ($appId -notmatch 'AppleInc\.AppleMusicWin|iTunes|AppleMusic') {
+    if ($null -eq $session) {
         Write-Output '{"state":"not_running"}'
         exit 0
     }
@@ -95,25 +90,60 @@ try {
     if ($duration -lt 0) { $duration = 0 }
 
     # ---- Thumbnail extraction ----
-    # The thumbnail comes back as a stream reference, not a file -- we have
-    # to open it, read it into a byte buffer via a DataReader, then write
-    # those bytes out to a temp file ourselves so the rest of the app can
-    # treat it exactly like the file path iTunes' COM API gives us.
+    # The thumbnail comes back as an IRandomAccessStreamReference -- a WinRT
+    # stream interface. PowerShell's COM adapter cannot cast the raw COM
+    # object it gets back from OpenReadAsync() into any of the typed stream
+    # interfaces needed to actually read bytes out of it (confirmed: this is
+    # a known, structural limitation of PowerShell's WinRT projection for
+    # interface-typed return values with no concrete class -- see
+    # https://github.com/PowerShell/PowerShell/issues/11904 for the same
+    # "Cannot convert System.__ComObject" error on an unrelated WinRT API).
+    #
+    # Workaround: compile a tiny piece of real C# at runtime via Add-Type.
+    # C# has no trouble with this exact cast (it's only PowerShell's adapter
+    # that struggles), so we hand the stream reference to compiled code and
+    # let IT do the reading, then just take back a plain byte[] -- something
+    # PowerShell handles natively with zero WinRT casting involved.
     $artworkPath = ""
     try {
         $thumbRef = $props.Thumbnail
         if ($null -ne $thumbRef) {
-            $streamOp = $thumbRef.OpenReadAsync()
-            $stream = Await $streamOp ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
+            if (-not ([System.Management.Automation.PSTypeName]'MusicToDiscord.ThumbnailReader').Type) {
+                Add-Type -ReferencedAssemblies 'System.Runtime.WindowsRuntime' -TypeDefinition @"
+                using System;
+                using System.IO;
+                using System.Threading.Tasks;
+                using Windows.Storage.Streams;
 
-            if ($null -ne $stream -and $stream.Size -gt 0) {
-                $reader = [Windows.Storage.Streams.DataReader]::new($stream)
-                $loadOp = $reader.LoadAsync([System.UInt32]$stream.Size)
-                Await $loadOp ([System.UInt32]) | Out-Null
+                namespace MusicToDiscord
+                {
+                    public static class ThumbnailReader
+                    {
+                        // Plain C# -- the IRandomAccessStreamWithContentType
+                        // cast below works fine here even though the same
+                        // cast fails inside PowerShell's COM adapter.
+                        public static byte[] ReadAllBytes(IRandomAccessStreamReference streamRef)
+                        {
+                            IRandomAccessStreamWithContentType stream =
+                                streamRef.OpenReadAsync().AsTask().GetAwaiter().GetResult();
 
-                $bytes = New-Object byte[] ([int]$stream.Size)
-                $reader.ReadBytes($bytes)
+                            if (stream == null || stream.Size == 0) return null;
 
+                            using (var netStream = stream.AsStreamForRead())
+                            using (var ms = new MemoryStream())
+                            {
+                                netStream.CopyTo(ms);
+                                return ms.ToArray();
+                            }
+                        }
+                    }
+                }
+"@
+            }
+
+            $bytes = [MusicToDiscord.ThumbnailReader]::ReadAllBytes($thumbRef)
+
+            if ($null -ne $bytes -and $bytes.Length -gt 0) {
                 $tempDir = [System.IO.Path]::GetTempPath()
                 $artFile = Join-Path $tempDir "itunes2discord-smtc-artwork.jpg"
                 [System.IO.File]::WriteAllBytes($artFile, $bytes)
@@ -125,8 +155,9 @@ try {
         }
     } catch {
         # Thumbnail extraction failed -- not critical, continue without it.
-        # Common causes: app didn't provide one, or the stream content type
-        # isn't a directly-savable image format.
+        # Common causes: app didn't provide one, JIT-compiling the C# helper
+        # failed (rare, but possible on very locked-down systems), or the
+        # underlying content genuinely isn't a directly-savable image format.
     }
 
     $obj = [PSCustomObject]@{

@@ -44,7 +44,7 @@ function runApp() {
   // at https://discord.com/developers/applications). End users do NOT need their
   // own ID -- everyone using MusicToDiscord shares this one, same as how every
   // Spotify user shares Spotify's single Discord integration.
-  const CLIENT_ID = '1518362803008831769';
+  const CLIENT_ID = '1519568889502105700';
 
   // Polling the music source (iTunes/SMTC) and pushing to Discord are now
   // decoupled. Discord's own docs say Rich Presence updates are rate-limited
