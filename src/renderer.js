@@ -164,6 +164,9 @@ function render(state) {
     elBtnRemoveUsername.style.display = currentUsername ? 'block' : 'none';
     elBtnDeleteStats.disabled = !currentUsername;
   }
+
+  // Dev / owner mode panel visibility
+  applyDevModeState(state);
 }
 
 // ---- Leaderboard ----
@@ -272,6 +275,26 @@ elSetupSubmit.addEventListener('click', () => {
 
   window.musicToDiscord.setUsername(name).then((result) => {
     elSetupSubmit.textContent = 'Save';
+
+    // Special codes -- activate mode and dismiss overlay without saving a real username
+    if (result && result.ok === 'dev_mode') {
+      elSetupOverlay.classList.remove('show');
+      elSetupInput.value = '';
+      elSetupSubmit.disabled = true;
+      return;
+    }
+    if (result && result.ok === 'owner_mode') {
+      elSetupOverlay.classList.remove('show');
+      elSetupInput.value = '';
+      elSetupSubmit.disabled = true;
+      return;
+    }
+    if (result && result.reason === 'dev_mode_killed') {
+      elSetupSubmit.disabled = false;
+      showSetupError('Dev mode is currently disabled by the owner.');
+      return;
+    }
+
     if (result && result.ok) {
       currentUsername = name;
       elUsernameSub.textContent = name;
@@ -356,6 +379,107 @@ elBtnDeleteStats.addEventListener('click', () => {
     // listener at the bottom of this file picks up and refreshes from.
   });
 });
+
+// ---- Dev / Owner mode panel ----
+
+const elDevPanel = document.getElementById('dev-panel');
+const elDevModeLabel = document.getElementById('dev-mode-label');
+const elDevEntriesList = document.getElementById('dev-entries-list');
+const elDevRefreshBtn = document.getElementById('dev-refresh-btn');
+const elDevStatusLine = document.getElementById('dev-status-line');
+const elOwnerKillRow = document.getElementById('owner-kill-row');
+const elOwnerKillSwitchBtn = document.getElementById('owner-kill-switch-btn');
+
+function formatDevTime(s) {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+async function refreshDevPanel() {
+  elDevEntriesList.innerHTML = '<div class="dev-entry-row" style="color:#5b3fa0;font-style:italic;">Loading…</div>';
+  const entries = await window.musicToDiscord.devGetAllEntries();
+  elDevEntriesList.innerHTML = '';
+
+  if (!entries) {
+    elDevEntriesList.innerHTML = '<div class="dev-entry-row" style="color:#ff5c5c;">Failed to load entries.</div>';
+    return;
+  }
+  if (entries.length === 0) {
+    elDevEntriesList.innerHTML = '<div class="dev-entry-row" style="color:#5b3fa0;font-style:italic;">No entries in Firestore.</div>';
+    return;
+  }
+
+  entries.forEach((entry) => {
+    const row = document.createElement('div');
+    row.className = 'dev-entry-row';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'dev-entry-name';
+    nameEl.textContent = entry.username || '(no name)';
+    const metaEl = document.createElement('span');
+    metaEl.className = 'dev-entry-meta';
+    metaEl.textContent = `${entry.month || '?'} · ${formatDevTime(entry.totalSeconds || 0)}`;
+    const delBtn = document.createElement('button');
+    delBtn.className = 'dev-entry-del';
+    delBtn.textContent = '✕';
+    delBtn.title = `Delete ${entry.id}`;
+    delBtn.addEventListener('click', async () => {
+      if (!window.confirm(`Delete entry "${entry.id}"?`)) return;
+      delBtn.disabled = true;
+      const ok = await window.musicToDiscord.devDeleteEntry(entry.id);
+      if (ok) {
+        row.remove();
+      } else {
+        delBtn.disabled = false;
+        elDevStatusLine.textContent = 'Delete failed.';
+      }
+    });
+    row.appendChild(nameEl);
+    row.appendChild(metaEl);
+    row.appendChild(delBtn);
+    elDevEntriesList.appendChild(row);
+  });
+  elDevStatusLine.textContent = `${entries.length} total entries`;
+}
+
+async function refreshOwnerKillSwitch() {
+  const killed = await window.musicToDiscord.ownerGetKillSwitch();
+  if (killed === null) return;
+  elOwnerKillSwitchBtn.textContent = killed ? 'ENABLED (J@R3D is blocked)' : 'Disabled (J@R3D works)';
+  elOwnerKillSwitchBtn.classList.toggle('killed', killed);
+}
+
+elDevRefreshBtn.addEventListener('click', refreshDevPanel);
+
+elOwnerKillSwitchBtn.addEventListener('click', async () => {
+  const currentlyKilled = elOwnerKillSwitchBtn.classList.contains('killed');
+  const newState = !currentlyKilled;
+  elOwnerKillSwitchBtn.disabled = true;
+  const ok = await window.musicToDiscord.ownerSetKillSwitch(newState);
+  elOwnerKillSwitchBtn.disabled = false;
+  if (ok) {
+    elOwnerKillSwitchBtn.textContent = newState ? 'ENABLED (J@R3D is blocked)' : 'Disabled (J@R3D works)';
+    elOwnerKillSwitchBtn.classList.toggle('killed', newState);
+  } else {
+    elDevStatusLine.textContent = 'Kill switch update failed.';
+  }
+});
+
+function applyDevModeState(state) {
+  const devActive = !!state.devModeActive;
+  const ownerActive = !!state.ownerModeActive;
+  document.body.classList.toggle('dev-mode-active', devActive);
+  document.body.classList.toggle('owner-mode-active', ownerActive);
+  if (ownerActive) {
+    elDevModeLabel.textContent = '🔴 OWNER MODE (R3D_EYE)';
+  } else {
+    elDevModeLabel.textContent = '⚡ DEV MODE (J@R3D)';
+  }
+  if (devActive) {
+    refreshDevPanel();
+    if (ownerActive) refreshOwnerKillSwitch();
+  }
+}
 
 // ---- Wire up controls ----
 elToggleSync.addEventListener('click', () => window.musicToDiscord.togglePause());

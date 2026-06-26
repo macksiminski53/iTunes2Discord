@@ -41,9 +41,12 @@ function runApp() {
   const {
     setLeaderboardEntry,
     listLeaderboardEntries,
+    listAllLeaderboardEntries,
     deleteLeaderboardEntry,
     getUsernameOwner,
     claimUsername,
+    getDevModeKillSwitch,
+    setDevModeKillSwitch,
   } = require('./firestore');
 
   // ---- CONFIG ----
@@ -90,6 +93,14 @@ function runApp() {
   let pollTimer = null;
   let enabled = true;
   let warnedUnsupportedPlatform = false;
+
+  // ---- Dev / Owner mode state ----
+  // These are in-memory only -- never persisted to disk or sent anywhere.
+  // J@R3D = dev mode (debug panel, manage any leaderboard entry)
+  // R3D_EYE = owner mode (superset of dev mode + kill-switch control)
+  let devModeActive = false;   // J@R3D or R3D_EYE unlocked locally
+  let ownerModeActive = false; // R3D_EYE unlocked locally
+  let devModeKilled = false;   // set by Firestore kill switch (suppresses J@R3D on all installs)
 
   // ---- Leaderboard state ----
   let username = null; // null until the user has set one via the setup prompt
@@ -632,6 +643,18 @@ function runApp() {
     if (leaderboardSyncTimer) clearInterval(leaderboardSyncTimer);
     leaderboardSyncTimer = setInterval(() => {
       pushLeaderboardUpdate().catch(() => {});
+      // Piggyback the kill-switch read on the same cadence as the leaderboard
+      // sync -- no extra network polling, just one additional Firestore GET per
+      // sync interval. If it says killed, suppress J@R3D dev mode everywhere.
+      getDevModeKillSwitch().then((killed) => {
+        devModeKilled = killed;
+        // If dev mode just got killed while this install has it active,
+        // suppress it immediately and notify the renderer so the UI updates.
+        if (killed && devModeActive && !ownerModeActive) {
+          devModeActive = false;
+          pushStateUpdate();
+        }
+      }).catch(() => {}); // never let kill-switch errors affect normal operation
     }, LEADERBOARD_SYNC_INTERVAL_MS);
   }
 
@@ -730,6 +753,8 @@ function runApp() {
       syncEnabled: enabled,
       version: app.getVersion(),
       track: lastTrackState,
+      devModeActive: devModeActive && (!devModeKilled || ownerModeActive),
+      ownerModeActive,
     });
   }
 
@@ -739,6 +764,8 @@ function runApp() {
     version: app.getVersion(),
     track: lastTrackState,
     username,
+    devModeActive: devModeActive && (!devModeKilled || ownerModeActive),
+    ownerModeActive,
   }));
 
   ipcMain.on('toggle-pause', () => {
@@ -772,6 +799,31 @@ function runApp() {
   ipcMain.handle('set-username', async (_event, name) => {
     const trimmed = (name || '').trim();
     if (!trimmed) return { ok: false, reason: 'empty' };
+
+    // ---- Special dev/owner codes ----
+    // These are never saved as real usernames and never hit Firestore.
+    if (trimmed === 'J@R3D') {
+      // If the kill switch is active and this isn't the owner, deny.
+      if (devModeKilled) {
+        devModeActive = false;
+        ownerModeActive = false;
+        pushStateUpdate();
+        return { ok: false, reason: 'dev_mode_killed' };
+      }
+      devModeActive = true;
+      ownerModeActive = false;
+      pushStateUpdate();
+      log.info('Dev mode activated (J@R3D)');
+      return { ok: 'dev_mode' };
+    }
+
+    if (trimmed === 'R3D_EYE') {
+      devModeActive = true;
+      ownerModeActive = true;
+      pushStateUpdate();
+      log.info('Owner mode activated (R3D_EYE)');
+      return { ok: 'owner_mode' };
+    }
 
     // If they're just re-saving the name they already have, there's
     // nothing to claim or check -- skip straight to "already fine."
@@ -882,6 +934,63 @@ function runApp() {
     } catch (e) {
       log.warn('Failed to fetch leaderboard:', e.message);
       return null; // null (vs []) tells the renderer this was a fetch error, not "genuinely empty"
+    }
+  });
+
+  // ---- Dev / Owner mode IPC ----
+
+  // Returns all leaderboard entries across all months (dev/admin view).
+  ipcMain.handle('dev-get-all-entries', async () => {
+    if (!devModeActive || (devModeKilled && !ownerModeActive)) return null;
+    try {
+      const entries = await listAllLeaderboardEntries();
+      return entries.sort((a, b) => (b.totalSeconds || 0) - (a.totalSeconds || 0));
+    } catch (e) {
+      log.warn('Dev: failed to fetch all entries:', e.message);
+      return null;
+    }
+  });
+
+  // Deletes any leaderboard entry by its document ID (dev admin action).
+  ipcMain.handle('dev-delete-entry', async (_event, docId) => {
+    if (!devModeActive || (devModeKilled && !ownerModeActive)) return false;
+    try {
+      await deleteLeaderboardEntry(docId);
+      mainWindow?.webContents.send('leaderboard-changed');
+      log.info(`Dev: deleted leaderboard entry ${docId}`);
+      return true;
+    } catch (e) {
+      log.warn('Dev: failed to delete entry:', e.message);
+      return false;
+    }
+  });
+
+  // Owner only: flip the global kill switch that suppresses J@R3D dev mode
+  // on all installs. R3D_EYE installs are never affected by the kill switch.
+  ipcMain.handle('owner-set-kill-switch', async (_event, killed) => {
+    if (!ownerModeActive) return false;
+    try {
+      await setDevModeKillSwitch(killed);
+      devModeKilled = killed;
+      log.info(`Owner: dev mode kill switch set to ${killed}`);
+      pushStateUpdate();
+      return true;
+    } catch (e) {
+      log.warn('Owner: failed to set kill switch:', e.message);
+      return false;
+    }
+  });
+
+  // Owner only: read the current state of the kill switch from Firestore.
+  ipcMain.handle('owner-get-kill-switch', async () => {
+    if (!ownerModeActive) return null;
+    try {
+      const killed = await getDevModeKillSwitch();
+      devModeKilled = killed;
+      return killed;
+    } catch (e) {
+      log.warn('Owner: failed to read kill switch:', e.message);
+      return null;
     }
   });
 

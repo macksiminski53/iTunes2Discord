@@ -648,5 +648,115 @@
   </div>
 
   <script src="./renderer.js"></script>
+
+  <!-- Dev / Owner panel -- hidden by default, shown by renderer.js when mode is active -->
+  <style>
+    #dev-panel {
+      display: none;
+      flex-direction: column;
+      gap: 0;
+      margin: 10px 16px 0;
+      background: #1a1025;
+      border: 1px solid #5b3fa0;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    body.dev-mode-active #dev-panel { display: flex; }
+    #dev-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      background: #2a1a40;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #b48aff;
+    }
+    #dev-mode-label { color: #b48aff; }
+    body.owner-mode-active #dev-mode-label { color: #ff5c5c; }
+    #dev-entries-list {
+      max-height: 200px;
+      overflow-y: auto;
+      padding: 6px 0;
+    }
+    .dev-entry-row {
+      display: flex;
+      align-items: center;
+      padding: 4px 14px;
+      gap: 8px;
+      font-size: 12px;
+      color: #c0a8ff;
+    }
+    .dev-entry-row:hover { background: #251535; }
+    .dev-entry-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dev-entry-meta { color: #7a5fb0; font-size: 11px; min-width: 80px; text-align: right; }
+    .dev-entry-del {
+      background: none;
+      border: 1px solid #5b3fa0;
+      border-radius: 4px;
+      color: #ff5c5c;
+      cursor: pointer;
+      font-size: 10px;
+      padding: 1px 6px;
+    }
+    .dev-entry-del:hover { background: #5b1a1a; }
+    #dev-panel-footer {
+      padding: 8px 14px;
+      border-top: 1px solid #2a1540;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    #owner-kill-row {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #ff5c5c;
+    }
+    body.owner-mode-active #owner-kill-row { display: flex; }
+    #dev-refresh-btn {
+      background: none;
+      border: 1px solid #5b3fa0;
+      border-radius: 5px;
+      color: #b48aff;
+      cursor: pointer;
+      font-size: 11px;
+      padding: 3px 10px;
+    }
+    #dev-refresh-btn:hover { background: #2a1a40; }
+    #owner-kill-switch-btn {
+      background: none;
+      border: 1px solid #8b1a1a;
+      border-radius: 5px;
+      color: #ff5c5c;
+      cursor: pointer;
+      font-size: 11px;
+      padding: 3px 10px;
+    }
+    #owner-kill-switch-btn:hover { background: #2a0a0a; }
+    #owner-kill-switch-btn.killed { border-color: #3a8b3a; color: #5cd65c; }
+    #owner-kill-switch-btn.killed:hover { background: #0a2a0a; }
+    #dev-status-line { font-size: 11px; color: #7a5fb0; }
+  </style>
+
+  <div id="dev-panel">
+    <div id="dev-panel-header">
+      <span id="dev-mode-label">⚡ DEV MODE</span>
+      <button id="dev-refresh-btn">Refresh</button>
+    </div>
+    <div id="dev-entries-list">
+      <div class="dev-entry-row" style="color:#5b3fa0;font-style:italic;">Loading entries…</div>
+    </div>
+    <div id="dev-panel-footer">
+      <div id="dev-status-line"></div>
+      <div id="owner-kill-row">
+        <span>Global J@R3D kill switch</span>
+        <button id="owner-kill-switch-btn">Loading…</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

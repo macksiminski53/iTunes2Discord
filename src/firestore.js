@@ -177,10 +177,56 @@ async function claimUsername(name, deviceId) {
   });
 }
 
+// ---- Dev mode kill switch ----
+// The `system/devModeKillSwitch` document holds a single boolean field
+// `killed`. When true, any install that has locally unlocked J@R3D dev mode
+// will have it suppressed. R3D_EYE (owner mode) is never affected.
+//
+// Every install reads this doc during its normal leaderboard sync cadence
+// (no extra polling). Owner installs can flip it via setDevModeKillSwitch.
+
+async function getDevModeKillSwitch() {
+  const path = `${BASE_PATH}/system/devModeKillSwitch`;
+  try {
+    const doc = await request('GET', path);
+    const fields = fromFirestoreFields(doc.fields);
+    return !!fields.killed;
+  } catch (e) {
+    if (/404/.test(e.message)) return false; // doc doesn't exist yet → not killed
+    throw e;
+  }
+}
+
+async function setDevModeKillSwitch(killed) {
+  const path = `${BASE_PATH}/system/devModeKillSwitch`;
+  await request('PATCH', path, {
+    fields: toFirestoreFields({ killed: !!killed, updatedAt: new Date() }),
+  });
+}
+
+// ---- Admin: list ALL leaderboard entries (any month) ----
+// Used by J@R3D / R3D_EYE dev panel, which needs to see everything, not just
+// the current month's filtered view that normal users get.
+async function listAllLeaderboardEntries() {
+  const path = `${BASE_PATH}/leaderboard?pageSize=500`;
+  const result = await request('GET', path);
+  const docs = result.documents || [];
+  return docs.map((doc) => {
+    const idParts = doc.name.split('/');
+    return {
+      id: decodeURIComponent(idParts[idParts.length - 1]),
+      ...fromFirestoreFields(doc.fields),
+    };
+  });
+}
+
 module.exports = {
   setLeaderboardEntry,
   listLeaderboardEntries,
+  listAllLeaderboardEntries,
   deleteLeaderboardEntry,
   getUsernameOwner,
   claimUsername,
+  getDevModeKillSwitch,
+  setDevModeKillSwitch,
 };
