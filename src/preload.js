@@ -25,12 +25,16 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
     ipcRenderer.on('leaderboard-changed', () => callback());
   },
 
-  // Dev mode (J@R3D) — only functional when devModeActive is true in main
+  // Dev mode
+  getDevMode: () => ipcRenderer.invoke('get-dev-mode'),
   devGetAllEntries: () => ipcRenderer.invoke('dev-get-all-entries'),
   devDeleteEntry: (docId) => ipcRenderer.invoke('dev-delete-entry', docId),
+  devDeleteByUsername: (name) => ipcRenderer.invoke('dev-delete-by-username', name),
+  devGetState: () => ipcRenderer.invoke('dev-get-state'),
+  devGetRecentErrors: () => ipcRenderer.invoke('dev-get-recent-errors'),
 
-  // Owner mode (R3D_EYE) — only functional when ownerModeActive is true in main
-  ownerGetKillSwitch: () => ipcRenderer.invoke('owner-get-kill-switch'),
-  ownerSetKillSwitch: (killed) => ipcRenderer.invoke('owner-set-kill-switch', killed),
+  // Owner mode
+  getOwnerMode: () => ipcRenderer.invoke('get-owner-mode'),
+  disableDevPasscode: () => ipcRenderer.invoke('disable-dev-passcode'),
+  getDevPasscodeStatus: () => ipcRenderer.invoke('get-dev-passcode-status'),
 });
-

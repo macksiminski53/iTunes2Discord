@@ -20,10 +20,25 @@ const elBtnClose = document.getElementById('btn-close');
 // Leaderboard / tabs
 const elTabBtnNowPlaying = document.getElementById('tab-btn-now-playing');
 const elTabBtnLeaderboard = document.getElementById('tab-btn-leaderboard');
+const elTabBtnDev = document.getElementById('tab-btn-dev');
 const elLeaderboardMonth = document.getElementById('leaderboard-month');
 const elLeaderboardList = document.getElementById('leaderboard-list');
 const elLeaderboardEmpty = document.getElementById('leaderboard-empty');
 const elLeaderboardError = document.getElementById('leaderboard-error');
+
+// Dev mode
+const elDevStateGrid = document.getElementById('dev-state-grid');
+const elDevErrorsList = document.getElementById('dev-errors-list');
+const elDevErrorsEmpty = document.getElementById('dev-errors-empty');
+const elDevEntriesList = document.getElementById('dev-entries-list');
+const elDevEntriesEmpty = document.getElementById('dev-entries-empty');
+const elDevDeleteInput = document.getElementById('dev-delete-input');
+const elDevDeleteByNameBtn = document.getElementById('dev-delete-by-name-btn');
+
+// Owner mode
+const elDevOwnerSection = document.getElementById('dev-owner-section');
+const elDevPasscodeStatus = document.getElementById('dev-passcode-status');
+const elDevDisablePasscodeBtn = document.getElementById('dev-disable-passcode-btn');
 
 // Username setup overlay
 const elSetupOverlay = document.getElementById('setup-overlay');
@@ -165,8 +180,13 @@ function render(state) {
     elBtnDeleteStats.disabled = !currentUsername;
   }
 
-  // Dev / owner mode panel visibility
-  applyDevModeState(state);
+  if (state.devMode) {
+    elTabBtnDev.style.display = '';
+  }
+
+  if (typeof state.ownerMode !== 'undefined') {
+    document.body.classList.toggle('owner-mode', !!state.ownerMode);
+  }
 }
 
 // ---- Leaderboard ----
@@ -223,13 +243,16 @@ function loadLeaderboard() {
   window.musicToDiscord.getLeaderboard().then(renderLeaderboard);
 }
 
-function showTab(tab) {
-  const isLeaderboard = tab === 'leaderboard';
-  document.body.classList.toggle('tab-leaderboard', isLeaderboard);
-  elTabBtnNowPlaying.classList.toggle('active', !isLeaderboard);
-  elTabBtnLeaderboard.classList.toggle('active', isLeaderboard);
+let devRefreshTimer = null;
 
-  if (isLeaderboard) {
+function showTab(tab) {
+  document.body.classList.toggle('tab-leaderboard', tab === 'leaderboard');
+  document.body.classList.toggle('tab-dev', tab === 'dev');
+  elTabBtnNowPlaying.classList.toggle('active', tab === 'now-playing');
+  elTabBtnLeaderboard.classList.toggle('active', tab === 'leaderboard');
+  elTabBtnDev.classList.toggle('active', tab === 'dev');
+
+  if (tab === 'leaderboard') {
     loadLeaderboard();
     // Keep it reasonably fresh while the tab is actually open, without
     // polling Firestore in the background when the user isn't even
@@ -241,10 +264,132 @@ function showTab(tab) {
     clearInterval(leaderboardRefreshTimer);
     leaderboardRefreshTimer = null;
   }
+
+  if (tab === 'dev') {
+    refreshDevPanel();
+    if (!devRefreshTimer) {
+      devRefreshTimer = setInterval(refreshDevPanel, 3000);
+    }
+  } else if (devRefreshTimer) {
+    clearInterval(devRefreshTimer);
+    devRefreshTimer = null;
+  }
 }
 
 elTabBtnNowPlaying.addEventListener('click', () => showTab('now-playing'));
 elTabBtnLeaderboard.addEventListener('click', () => showTab('leaderboard'));
+elTabBtnDev.addEventListener('click', () => showTab('dev'));
+
+// ---- Dev mode ----
+function formatDevValue(val) {
+  if (val === null || typeof val === 'undefined') return '—';
+  if (typeof val === 'boolean') return val ? 'true' : 'false';
+  return String(val);
+}
+
+function renderDevStateGrid(state) {
+  elDevStateGrid.innerHTML = '';
+  if (!state) return;
+  Object.entries(state).forEach(([key, value]) => {
+    const cell = document.createElement('div');
+    cell.className = 'dev-stat';
+    cell.innerHTML = '<div class="dev-stat-key"></div><div class="dev-stat-val"></div>';
+    cell.querySelector('.dev-stat-key').textContent = key;
+    cell.querySelector('.dev-stat-val').textContent = formatDevValue(value);
+    elDevStateGrid.appendChild(cell);
+  });
+}
+
+function renderDevErrors(lines) {
+  elDevErrorsList.innerHTML = '';
+  elDevErrorsEmpty.style.display = 'none';
+  if (!lines || lines.length === 0) {
+    elDevErrorsEmpty.style.display = 'block';
+    return;
+  }
+  // Most recent first -- main.js returns oldest-to-newest (tail of the
+  // file, in file order), reverse here so the newest is at the top where
+  // it's immediately visible without scrolling.
+  [...lines].reverse().forEach((line) => {
+    const div = document.createElement('div');
+    div.className = 'dev-error-line';
+    div.textContent = line;
+    elDevErrorsList.appendChild(div);
+  });
+}
+
+function renderDevEntries(entries) {
+  elDevEntriesList.innerHTML = '';
+  elDevEntriesEmpty.style.display = 'none';
+  if (!entries || entries.length === 0) {
+    elDevEntriesEmpty.style.display = 'block';
+    return;
+  }
+  entries.forEach((entry) => {
+    const row = document.createElement('div');
+    row.className = 'dev-entry-row';
+    row.innerHTML = `
+      <span class="dev-entry-name"></span>
+      <span class="dev-entry-month"></span>
+      <span class="dev-entry-time"></span>
+      <button class="dev-entry-delete">DEL</button>
+    `;
+    row.querySelector('.dev-entry-name').textContent = entry.username || 'Unknown';
+    row.querySelector('.dev-entry-month').textContent = entry.month || '';
+    row.querySelector('.dev-entry-time').textContent = formatListeningTime(entry.totalSeconds);
+    row.querySelector('.dev-entry-delete').addEventListener('click', () => {
+      window.musicToDiscord.devDeleteEntry(entry.id).then(() => refreshDevPanel());
+    });
+    elDevEntriesList.appendChild(row);
+  });
+}
+
+function formatRemaining(ms) {
+  const totalSec = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function refreshDevPanel() {
+  window.musicToDiscord.devGetState().then(renderDevStateGrid);
+  window.musicToDiscord.devGetRecentErrors().then(renderDevErrors);
+  window.musicToDiscord.devGetAllEntries().then(renderDevEntries);
+
+  window.musicToDiscord.getOwnerMode().then((isOwner) => {
+    elDevOwnerSection.style.display = isOwner ? 'block' : 'none';
+    if (!isOwner) return;
+    window.musicToDiscord.getDevPasscodeStatus().then((status) => {
+      if (status && status.disabled) {
+        elDevPasscodeStatus.textContent = `Dev passcode disabled — back on in ${formatRemaining(status.msRemaining)}`;
+        elDevDisablePasscodeBtn.disabled = true;
+      } else {
+        elDevPasscodeStatus.textContent = 'Dev passcode is active';
+        elDevDisablePasscodeBtn.disabled = false;
+      }
+    });
+  });
+}
+
+elDevDisablePasscodeBtn.addEventListener('click', () => {
+  elDevDisablePasscodeBtn.disabled = true;
+  window.musicToDiscord.disableDevPasscode().then(() => refreshDevPanel());
+});
+
+elDevDeleteByNameBtn.addEventListener('click', () => {
+  const name = elDevDeleteInput.value.trim();
+  if (!name) return;
+  elDevDeleteByNameBtn.disabled = true;
+  window.musicToDiscord.devDeleteByUsername(name).then(() => {
+    elDevDeleteByNameBtn.disabled = false;
+    elDevDeleteInput.value = '';
+    refreshDevPanel();
+  });
+});
+
+elDevDeleteInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') elDevDeleteByNameBtn.click();
+});
 
 // ---- Username setup overlay ----
 elSetupInput.addEventListener('input', () => {
@@ -275,26 +420,6 @@ elSetupSubmit.addEventListener('click', () => {
 
   window.musicToDiscord.setUsername(name).then((result) => {
     elSetupSubmit.textContent = 'Save';
-
-    // Special codes -- activate mode and dismiss overlay without saving a real username
-    if (result && result.ok === 'dev_mode') {
-      elSetupOverlay.classList.remove('show');
-      elSetupInput.value = '';
-      elSetupSubmit.disabled = true;
-      return;
-    }
-    if (result && result.ok === 'owner_mode') {
-      elSetupOverlay.classList.remove('show');
-      elSetupInput.value = '';
-      elSetupSubmit.disabled = true;
-      return;
-    }
-    if (result && result.reason === 'dev_mode_killed') {
-      elSetupSubmit.disabled = false;
-      showSetupError('Dev mode is currently disabled by the owner.');
-      return;
-    }
-
     if (result && result.ok) {
       currentUsername = name;
       elUsernameSub.textContent = name;
@@ -309,6 +434,31 @@ elSetupSubmit.addEventListener('click', () => {
     // edit it and retry rather than starting over.
     elSetupSubmit.disabled = false;
     const reason = result && result.reason;
+    if (reason === 'dev_mode_unlocked') {
+      // Not a real username attempt -- close the overlay and reveal the
+      // Dev tab instead of showing an error.
+      elSetupInput.value = '';
+      elSetupOverlay.classList.remove('show');
+      elTabBtnDev.style.display = '';
+      showTab('dev');
+      return;
+    }
+    if (reason === 'owner_mode_unlocked' || reason === 'owner_mode_disabled') {
+      elSetupInput.value = '';
+      elSetupOverlay.classList.remove('show');
+      const isOn = reason === 'owner_mode_unlocked';
+      document.body.classList.toggle('owner-mode', isOn);
+      if (isOn) {
+        elTabBtnDev.style.display = '';
+        showTab('dev');
+      } else if (document.body.classList.contains('tab-dev')) {
+        // Re-render the dev panel so the owner-only "disable passcode"
+        // control disappears immediately rather than lingering until the
+        // next 3s auto-refresh.
+        refreshDevPanel();
+      }
+      return;
+    }
     if (reason === 'taken') {
       showSetupError("That name's already taken — try another.");
     } else if (reason === 'check_failed') {
@@ -379,107 +529,6 @@ elBtnDeleteStats.addEventListener('click', () => {
     // listener at the bottom of this file picks up and refreshes from.
   });
 });
-
-// ---- Dev / Owner mode panel ----
-
-const elDevPanel = document.getElementById('dev-panel');
-const elDevModeLabel = document.getElementById('dev-mode-label');
-const elDevEntriesList = document.getElementById('dev-entries-list');
-const elDevRefreshBtn = document.getElementById('dev-refresh-btn');
-const elDevStatusLine = document.getElementById('dev-status-line');
-const elOwnerKillRow = document.getElementById('owner-kill-row');
-const elOwnerKillSwitchBtn = document.getElementById('owner-kill-switch-btn');
-
-function formatDevTime(s) {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
-
-async function refreshDevPanel() {
-  elDevEntriesList.innerHTML = '<div class="dev-entry-row" style="color:#5b3fa0;font-style:italic;">Loading…</div>';
-  const entries = await window.musicToDiscord.devGetAllEntries();
-  elDevEntriesList.innerHTML = '';
-
-  if (!entries) {
-    elDevEntriesList.innerHTML = '<div class="dev-entry-row" style="color:#ff5c5c;">Failed to load entries.</div>';
-    return;
-  }
-  if (entries.length === 0) {
-    elDevEntriesList.innerHTML = '<div class="dev-entry-row" style="color:#5b3fa0;font-style:italic;">No entries in Firestore.</div>';
-    return;
-  }
-
-  entries.forEach((entry) => {
-    const row = document.createElement('div');
-    row.className = 'dev-entry-row';
-    const nameEl = document.createElement('span');
-    nameEl.className = 'dev-entry-name';
-    nameEl.textContent = entry.username || '(no name)';
-    const metaEl = document.createElement('span');
-    metaEl.className = 'dev-entry-meta';
-    metaEl.textContent = `${entry.month || '?'} · ${formatDevTime(entry.totalSeconds || 0)}`;
-    const delBtn = document.createElement('button');
-    delBtn.className = 'dev-entry-del';
-    delBtn.textContent = '✕';
-    delBtn.title = `Delete ${entry.id}`;
-    delBtn.addEventListener('click', async () => {
-      if (!window.confirm(`Delete entry "${entry.id}"?`)) return;
-      delBtn.disabled = true;
-      const ok = await window.musicToDiscord.devDeleteEntry(entry.id);
-      if (ok) {
-        row.remove();
-      } else {
-        delBtn.disabled = false;
-        elDevStatusLine.textContent = 'Delete failed.';
-      }
-    });
-    row.appendChild(nameEl);
-    row.appendChild(metaEl);
-    row.appendChild(delBtn);
-    elDevEntriesList.appendChild(row);
-  });
-  elDevStatusLine.textContent = `${entries.length} total entries`;
-}
-
-async function refreshOwnerKillSwitch() {
-  const killed = await window.musicToDiscord.ownerGetKillSwitch();
-  if (killed === null) return;
-  elOwnerKillSwitchBtn.textContent = killed ? 'ENABLED (J@R3D is blocked)' : 'Disabled (J@R3D works)';
-  elOwnerKillSwitchBtn.classList.toggle('killed', killed);
-}
-
-elDevRefreshBtn.addEventListener('click', refreshDevPanel);
-
-elOwnerKillSwitchBtn.addEventListener('click', async () => {
-  const currentlyKilled = elOwnerKillSwitchBtn.classList.contains('killed');
-  const newState = !currentlyKilled;
-  elOwnerKillSwitchBtn.disabled = true;
-  const ok = await window.musicToDiscord.ownerSetKillSwitch(newState);
-  elOwnerKillSwitchBtn.disabled = false;
-  if (ok) {
-    elOwnerKillSwitchBtn.textContent = newState ? 'ENABLED (J@R3D is blocked)' : 'Disabled (J@R3D works)';
-    elOwnerKillSwitchBtn.classList.toggle('killed', newState);
-  } else {
-    elDevStatusLine.textContent = 'Kill switch update failed.';
-  }
-});
-
-function applyDevModeState(state) {
-  const devActive = !!state.devModeActive;
-  const ownerActive = !!state.ownerModeActive;
-  document.body.classList.toggle('dev-mode-active', devActive);
-  document.body.classList.toggle('owner-mode-active', ownerActive);
-  if (ownerActive) {
-    elDevModeLabel.textContent = '🔴 OWNER MODE (R3D_EYE)';
-  } else {
-    elDevModeLabel.textContent = '⚡ DEV MODE (J@R3D)';
-  }
-  if (devActive) {
-    refreshDevPanel();
-    if (ownerActive) refreshOwnerKillSwitch();
-  }
-}
 
 // ---- Wire up controls ----
 elToggleSync.addEventListener('click', () => window.musicToDiscord.togglePause());

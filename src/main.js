@@ -41,12 +41,9 @@ function runApp() {
   const {
     setLeaderboardEntry,
     listLeaderboardEntries,
-    listAllLeaderboardEntries,
     deleteLeaderboardEntry,
     getUsernameOwner,
     claimUsername,
-    getDevModeKillSwitch,
-    setDevModeKillSwitch,
   } = require('./firestore');
 
   // ---- CONFIG ----
@@ -94,17 +91,13 @@ function runApp() {
   let enabled = true;
   let warnedUnsupportedPlatform = false;
 
-  // ---- Dev / Owner mode state ----
-  // These are in-memory only -- never persisted to disk or sent anywhere.
-  // J@R3D = dev mode (debug panel, manage any leaderboard entry)
-  // R3D_EYE = owner mode (superset of dev mode + kill-switch control)
-  let devModeActive = false;   // J@R3D or R3D_EYE unlocked locally
-  let ownerModeActive = false; // R3D_EYE unlocked locally
-  let devModeKilled = false;   // set by Firestore kill switch (suppresses J@R3D on all installs)
-
   // ---- Leaderboard state ----
   let username = null; // null until the user has set one via the setup prompt
   let deviceId = null; // set once at startup via getOrCreateDeviceId()
+  let devModeEnabled = false; // unlocked by typing the passcode into the username setup box
+  let ownerModeEnabled = false; // unlocked by a separate, stronger passcode -- gold theme + dev mode + can temporarily disable the dev passcode
+  let devPasscodeDisabledUntil = 0; // Date.now() timestamp; 0 means not disabled
+  let devPasscodeDisableTimer = null;
   let sessionSecondsThisMonth = 0; // accumulated locally since last Firestore push
   let lastLeaderboardPushAt = 0;
   let leaderboardSyncTimer = null;
@@ -202,6 +195,108 @@ function runApp() {
       log.warn('Failed to clear username:', e.message);
       return false;
     }
+  }
+
+  // ---- Dev mode ----
+  // Unlocked by typing the passcode into the username setup box instead of
+  // a real name -- main.js intercepts it in the set-username handler below
+  // before it's ever treated as an actual username or sent to Firestore.
+  // Persisted in the same local file as username/deviceId so it survives
+  // restarts once unlocked.
+  const DEV_MODE_PASSCODE = 'J@R3D';
+
+  function loadDevMode() {
+    return !!readUsernameFile().devMode;
+  }
+
+  function saveDevMode(enabled) {
+    try {
+      const existing = readUsernameFile();
+      fs.writeFileSync(
+        getUsernameFilePath(),
+        JSON.stringify({ ...existing, devMode: enabled }),
+        'utf8'
+      );
+      return true;
+    } catch (e) {
+      log.warn('Failed to save dev mode flag:', e.message);
+      return false;
+    }
+  }
+
+  // ---- Owner mode ----
+  // A second, separate passcode (stronger/rarer than the dev-mode one) that
+  // unlocks everything dev mode does, PLUS a gold theme across the whole
+  // window, PLUS the ability to temporarily turn off the regular dev-mode
+  // passcode for an hour. Toggles on/off by typing the same code again --
+  // unlike dev mode, this is meant to be flipped back off, not a one-way
+  // unlock, so there's no separate "remove" action for it.
+  const OWNER_MODE_PASSCODE = 'R3D_EYE';
+  const DEV_PASSCODE_DISABLE_DURATION_MS = 60 * 60 * 1000; // 1 hour
+
+  function loadOwnerMode() {
+    return !!readUsernameFile().ownerMode;
+  }
+
+  function saveOwnerMode(enabled) {
+    try {
+      const existing = readUsernameFile();
+      fs.writeFileSync(
+        getUsernameFilePath(),
+        JSON.stringify({ ...existing, ownerMode: enabled }),
+        'utf8'
+      );
+      return true;
+    } catch (e) {
+      log.warn('Failed to save owner mode flag:', e.message);
+      return false;
+    }
+  }
+
+  // Stored as an absolute timestamp (not a duration) so it survives an app
+  // restart correctly -- if you disable the passcode then quit and reopen
+  // the app 20 minutes later, it should still have ~40 minutes left, not
+  // reset to a fresh hour.
+  function loadDevPasscodeDisabledUntil() {
+    const val = readUsernameFile().devPasscodeDisabledUntil;
+    return typeof val === 'number' ? val : 0;
+  }
+
+  function saveDevPasscodeDisabledUntil(timestamp) {
+    try {
+      const existing = readUsernameFile();
+      fs.writeFileSync(
+        getUsernameFilePath(),
+        JSON.stringify({ ...existing, devPasscodeDisabledUntil: timestamp }),
+        'utf8'
+      );
+      return true;
+    } catch (e) {
+      log.warn('Failed to save dev passcode disable timestamp:', e.message);
+      return false;
+    }
+  }
+
+  // Schedules (or re-schedules) the moment the dev passcode automatically
+  // starts working again. Safe to call multiple times -- clears any
+  // existing timer first, so re-toggling owner mode mid-disable just resets
+  // the clock to a fresh hour rather than stacking timers.
+  function scheduleDevPasscodeReenable(untilTimestamp) {
+    if (devPasscodeDisableTimer) {
+      clearTimeout(devPasscodeDisableTimer);
+      devPasscodeDisableTimer = null;
+    }
+    const msRemaining = untilTimestamp - Date.now();
+    if (msRemaining <= 0) {
+      devPasscodeDisabledUntil = 0;
+      saveDevPasscodeDisabledUntil(0);
+      return;
+    }
+    devPasscodeDisableTimer = setTimeout(() => {
+      devPasscodeDisabledUntil = 0;
+      saveDevPasscodeDisabledUntil(0);
+      log.info('Dev mode passcode automatically re-enabled');
+    }, msRemaining);
   }
 
   function getCurrentMonthKey() {
@@ -643,18 +738,6 @@ function runApp() {
     if (leaderboardSyncTimer) clearInterval(leaderboardSyncTimer);
     leaderboardSyncTimer = setInterval(() => {
       pushLeaderboardUpdate().catch(() => {});
-      // Piggyback the kill-switch read on the same cadence as the leaderboard
-      // sync -- no extra network polling, just one additional Firestore GET per
-      // sync interval. If it says killed, suppress J@R3D dev mode everywhere.
-      getDevModeKillSwitch().then((killed) => {
-        devModeKilled = killed;
-        // If dev mode just got killed while this install has it active,
-        // suppress it immediately and notify the renderer so the UI updates.
-        if (killed && devModeActive && !ownerModeActive) {
-          devModeActive = false;
-          pushStateUpdate();
-        }
-      }).catch(() => {}); // never let kill-switch errors affect normal operation
     }, LEADERBOARD_SYNC_INTERVAL_MS);
   }
 
@@ -753,8 +836,6 @@ function runApp() {
       syncEnabled: enabled,
       version: app.getVersion(),
       track: lastTrackState,
-      devModeActive: devModeActive && (!devModeKilled || ownerModeActive),
-      ownerModeActive,
     });
   }
 
@@ -764,8 +845,8 @@ function runApp() {
     version: app.getVersion(),
     track: lastTrackState,
     username,
-    devModeActive: devModeActive && (!devModeKilled || ownerModeActive),
-    ownerModeActive,
+    devMode: devModeEnabled,
+    ownerMode: ownerModeEnabled,
   }));
 
   ipcMain.on('toggle-pause', () => {
@@ -800,29 +881,44 @@ function runApp() {
     const trimmed = (name || '').trim();
     if (!trimmed) return { ok: false, reason: 'empty' };
 
-    // ---- Special dev/owner codes ----
-    // These are never saved as real usernames and never hit Firestore.
-    if (trimmed === 'J@R3D') {
-      // If the kill switch is active and this isn't the owner, deny.
-      if (devModeKilled) {
-        devModeActive = false;
-        ownerModeActive = false;
-        pushStateUpdate();
-        return { ok: false, reason: 'dev_mode_killed' };
+    // Owner mode passcode -- a separate, stronger code that toggles owner
+    // mode on/off. Checked BEFORE the dev passcode below so it's never
+    // affected by the dev-passcode disable window (that window only ever
+    // applies to DEV_MODE_PASSCODE itself, not this one -- otherwise
+    // there'd be no way to re-enable things once disabled).
+    if (trimmed === OWNER_MODE_PASSCODE) {
+      ownerModeEnabled = !ownerModeEnabled;
+      saveOwnerMode(ownerModeEnabled);
+      if (ownerModeEnabled) {
+        // Owner mode unlocks everything dev mode does too.
+        devModeEnabled = true;
+        saveDevMode(true);
+        log.info('Owner mode unlocked');
+      } else {
+        log.info('Owner mode disabled');
       }
-      devModeActive = true;
-      ownerModeActive = false;
-      pushStateUpdate();
-      log.info('Dev mode activated (J@R3D)');
-      return { ok: 'dev_mode' };
+      return {
+        ok: false,
+        reason: ownerModeEnabled ? 'owner_mode_unlocked' : 'owner_mode_disabled',
+      };
     }
 
-    if (trimmed === 'R3D_EYE') {
-      devModeActive = true;
-      ownerModeActive = true;
-      pushStateUpdate();
-      log.info('Owner mode activated (R3D_EYE)');
-      return { ok: 'owner_mode' };
+    // Dev mode passcode -- intercepted here, before anything below treats
+    // this as a real username. Never saved as a name, never sent to
+    // Firestore, never claimed. Case-sensitive and exact on purpose: typos
+    // should just fall through to "this is someone's actual username
+    // attempt," not silently almost-unlock dev mode.
+    //
+    // If an owner has temporarily disabled this passcode, it's treated as
+    // if it were just a regular (wrong) username attempt for the duration
+    // of that window -- falls through to the normal claim-checking flow
+    // below rather than unlocking anything.
+    const devPasscodeCurrentlyDisabled = devPasscodeDisabledUntil > Date.now();
+    if (trimmed === DEV_MODE_PASSCODE && !devPasscodeCurrentlyDisabled) {
+      devModeEnabled = true;
+      saveDevMode(true);
+      log.info('Dev mode unlocked');
+      return { ok: false, reason: 'dev_mode_unlocked' };
     }
 
     // If they're just re-saving the name they already have, there's
@@ -937,59 +1033,137 @@ function runApp() {
     }
   });
 
-  // ---- Dev / Owner mode IPC ----
+  // ---- Dev mode ----
+  // Unlocked via the passcode interception in set-username above. Nothing
+  // here is gated server-side -- these handlers exist in every build, dev
+  // mode just controls whether the renderer shows the tab that calls them.
+  // That's an acceptable line for a personal/friends tool like this one
+  // (these IPC channels aren't reachable from outside the app's own
+  // renderer anyway, since contextIsolation is on and nothing exposes raw
+  // ipcRenderer), but worth being clear it isn't a real permission system.
 
-  // Returns all leaderboard entries across all months (dev/admin view).
+  ipcMain.handle('get-dev-mode', () => devModeEnabled);
+
+  ipcMain.handle('get-owner-mode', () => ownerModeEnabled);
+
+  // Disables the regular dev-mode passcode for an hour. Owner-mode-only --
+  // checked here too (not just by hiding the button in the renderer),
+  // since IPC handlers shouldn't rely solely on the UI not exposing a
+  // control to actually enforce who can call them.
+  ipcMain.handle('disable-dev-passcode', () => {
+    if (!ownerModeEnabled) return false;
+    devPasscodeDisabledUntil = Date.now() + DEV_PASSCODE_DISABLE_DURATION_MS;
+    saveDevPasscodeDisabledUntil(devPasscodeDisabledUntil);
+    scheduleDevPasscodeReenable(devPasscodeDisabledUntil);
+    log.info('Dev mode passcode temporarily disabled for 1 hour by owner');
+    return true;
+  });
+
+  // Lets the dev panel show a live countdown without the renderer trying
+  // to do its own clock math against a raw timestamp it'd have to keep
+  // re-fetching anyway.
+  ipcMain.handle('get-dev-passcode-status', () => {
+    const disabled = devPasscodeDisabledUntil > Date.now();
+    return {
+      disabled,
+      msRemaining: disabled ? devPasscodeDisabledUntil - Date.now() : 0,
+    };
+  });
+
+  // Every leaderboard entry, every user, every month -- unlike
+  // get-leaderboard above, deliberately NOT filtered to the current month,
+  // since a dev tool for poking at the data should see all of it.
   ipcMain.handle('dev-get-all-entries', async () => {
-    if (!devModeActive || (devModeKilled && !ownerModeActive)) return null;
+    if (!devModeEnabled) return null;
     try {
-      const entries = await listAllLeaderboardEntries();
-      return entries.sort((a, b) => (b.totalSeconds || 0) - (a.totalSeconds || 0));
+      const entries = await listLeaderboardEntries();
+      return entries
+        .filter((e) => typeof e.totalSeconds === 'number')
+        .sort((a, b) => (a.month < b.month ? 1 : a.month > b.month ? -1 : b.totalSeconds - a.totalSeconds))
+        .map((e) => ({ id: e.id, username: e.username, month: e.month, totalSeconds: e.totalSeconds }));
     } catch (e) {
-      log.warn('Dev: failed to fetch all entries:', e.message);
+      log.warn('Dev mode: failed to fetch all entries:', e.message);
       return null;
     }
   });
 
-  // Deletes any leaderboard entry by its document ID (dev admin action).
+  // Deletes ANY entry by its raw docId (e.g. "SomeoneElse_2026-06") --
+  // not scoped to the current user. See the comment on
+  // listLeaderboardEntries / firestore.rules for why this isn't
+  // additionally gated server-side: today's delete rule is "allow delete:
+  // if true" for everyone already, dev mode or not.
   ipcMain.handle('dev-delete-entry', async (_event, docId) => {
-    if (!devModeActive || (devModeKilled && !ownerModeActive)) return false;
+    if (!devModeEnabled) return false;
+    if (!docId || typeof docId !== 'string') return false;
     try {
       await deleteLeaderboardEntry(docId);
-      mainWindow?.webContents.send('leaderboard-changed');
-      log.info(`Dev: deleted leaderboard entry ${docId}`);
+      loadLeaderboardAfterChange();
       return true;
     } catch (e) {
-      log.warn('Dev: failed to delete entry:', e.message);
+      log.warn('Dev mode: failed to delete entry:', docId, e.message);
       return false;
     }
   });
 
-  // Owner only: flip the global kill switch that suppresses J@R3D dev mode
-  // on all installs. R3D_EYE installs are never affected by the kill switch.
-  ipcMain.handle('owner-set-kill-switch', async (_event, killed) => {
-    if (!ownerModeActive) return false;
+  // Same as above, but takes a bare username instead of a full docId --
+  // convenience for the "delete by name" box, since typing the exact
+  // "name_YYYY-MM" format by hand is annoying and the current month is the
+  // overwhelmingly common case for "I want to wipe this person's stats."
+  ipcMain.handle('dev-delete-by-username', async (_event, targetUsername) => {
+    if (!devModeEnabled) return false;
+    const trimmed = (targetUsername || '').trim();
+    if (!trimmed) return false;
     try {
-      await setDevModeKillSwitch(killed);
-      devModeKilled = killed;
-      log.info(`Owner: dev mode kill switch set to ${killed}`);
-      pushStateUpdate();
+      await deleteLeaderboardEntry(`${trimmed}_${getCurrentMonthKey()}`);
+      loadLeaderboardAfterChange();
       return true;
     } catch (e) {
-      log.warn('Owner: failed to set kill switch:', e.message);
+      log.warn('Dev mode: failed to delete by username:', trimmed, e.message);
       return false;
     }
   });
 
-  // Owner only: read the current state of the kill switch from Firestore.
-  ipcMain.handle('owner-get-kill-switch', async () => {
-    if (!ownerModeActive) return null;
+  // Live internal state -- the kind of thing you'd otherwise only see by
+  // reading main.js's variables in a debugger. Recomputed fresh on every
+  // call rather than cached, since the renderer polls this while the dev
+  // tab is open and it should reflect what's happening right now.
+  ipcMain.handle('dev-get-state', () => {
+    if (!devModeEnabled) return null;
+    return {
+      connected,
+      enabled,
+      username,
+      deviceId,
+      sessionSecondsThisMonth: Math.round(sessionSecondsThisMonth),
+      monthlyTotalLoaded,
+      lastTrackKey,
+      lastPosition,
+      lastDiscordPushAt,
+      lastLeaderboardPushAt,
+      msSinceLastDiscordPush: lastDiscordPushAt ? Date.now() - lastDiscordPushAt : null,
+      msSinceLastLeaderboardPush: lastLeaderboardPushAt ? Date.now() - lastLeaderboardPushAt : null,
+      pollIntervalMs: POLL_INTERVAL_MS,
+      discordPushMinIntervalMs: DISCORD_PUSH_MIN_INTERVAL_MS,
+      leaderboardSyncIntervalMs: LEADERBOARD_SYNC_INTERVAL_MS,
+      appVersion: app.getVersion(),
+      monthKey: getCurrentMonthKey(),
+    };
+  });
+
+  // Tails the actual log file on disk and returns the most recent
+  // warning/error lines -- electron-log writes plain text lines prefixed
+  // with a level like "[warn]" or "[error]", so a simple substring filter
+  // is enough; no need to parse it as structured data for this.
+  ipcMain.handle('dev-get-recent-errors', () => {
+    if (!devModeEnabled) return null;
     try {
-      const killed = await getDevModeKillSwitch();
-      devModeKilled = killed;
-      return killed;
+      const logPath = log.transports.file.getFile().path;
+      const content = fs.readFileSync(logPath, 'utf8');
+      const lines = content.split('\n').filter(Boolean);
+      const relevant = lines.filter((l) => /\[(warn|error)\]/i.test(l));
+      return relevant.slice(-50); // most recent 50 -- this is a quick glance tool, not a full log viewer
     } catch (e) {
-      log.warn('Owner: failed to read kill switch:', e.message);
+      log.warn('Dev mode: failed to read log file:', e.message);
       return null;
     }
   });
@@ -1076,6 +1250,19 @@ function runApp() {
     // safe to do synchronously before anything else starts.
     username = loadUsername();
     deviceId = getOrCreateDeviceId();
+    devModeEnabled = loadDevMode();
+    ownerModeEnabled = loadOwnerMode();
+    devPasscodeDisabledUntil = loadDevPasscodeDisabledUntil();
+    if (devPasscodeDisabledUntil > Date.now()) {
+      // A disable window was already in progress when the app last closed
+      // -- pick up where it left off rather than resetting to a fresh hour.
+      scheduleDevPasscodeReenable(devPasscodeDisabledUntil);
+    } else if (devPasscodeDisabledUntil !== 0) {
+      // Stored timestamp is in the past (app was closed longer than the
+      // disable window lasted) -- clean it up so future reads are simple.
+      devPasscodeDisabledUntil = 0;
+      saveDevPasscodeDisabledUntil(0);
+    }
 
     const iconPath = path.join(__dirname, '..', 'assets', 'tray-icon.png');
     tray = new Tray(nativeImage.createFromPath(iconPath));
