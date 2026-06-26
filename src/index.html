@@ -29,6 +29,12 @@
     user-select: none;
   }
 
+  body {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+
   #drag-region {
     height: 32px;
     -webkit-app-region: drag;
@@ -329,9 +335,187 @@
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; }
   }
+
+  /* ---- Tab switcher (Now Playing / Leaderboard) ---- */
+  #tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0 28px 14px;
+    -webkit-app-region: no-drag;
+  }
+  .tab-btn {
+    flex: 1;
+    background: transparent;
+    border: 1px solid var(--divider);
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s, background 0.2s;
+  }
+  .tab-btn.active {
+    color: var(--text);
+    border-color: var(--indigo);
+    background: rgba(88,101,242,0.12);
+  }
+
+  #view-now-playing, #view-leaderboard {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  #view-leaderboard { display: none; }
+  body.tab-leaderboard #view-now-playing { display: none; }
+  body.tab-leaderboard #view-leaderboard { display: flex; }
+
+  /* ---- Leaderboard ---- */
+  #leaderboard-wrap {
+    padding: 4px 28px 18px;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  #leaderboard-month {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    text-align: center;
+  }
+
+  #leaderboard-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .lb-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: var(--bg-raised);
+  }
+  .lb-row.me {
+    background: rgba(88,101,242,0.16);
+    border: 1px solid rgba(88,101,242,0.4);
+  }
+
+  .lb-rank {
+    width: 20px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .lb-row:nth-child(1) .lb-rank { color: #FFD166; }
+  .lb-row:nth-child(2) .lb-rank { color: #C9CDD6; }
+  .lb-row:nth-child(3) .lb-rank { color: #D08A55; }
+
+  .lb-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .lb-time {
+    font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  #leaderboard-empty, #leaderboard-error {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 13px;
+    padding: 30px 10px;
+    display: none;
+  }
+
+  /* ---- Username setup overlay ---- */
+  #setup-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    z-index: 100;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    text-align: center;
+  }
+  #setup-overlay.show { display: flex; }
+
+  #setup-title {
+    font-size: 17px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  #setup-sub {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 18px;
+    line-height: 1.4;
+  }
+  #setup-input {
+    -webkit-app-region: no-drag;
+    width: 100%;
+    background: var(--bg-raised);
+    border: 1px solid var(--divider);
+    color: var(--text);
+    font-size: 14px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    outline: none;
+    box-sizing: border-box;
+  }
+  #setup-input:focus { border-color: var(--indigo); }
+  #setup-submit {
+    -webkit-app-region: no-drag;
+    width: 100%;
+    background: var(--indigo);
+    border: none;
+    color: white;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 10px 0;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  #setup-submit:disabled { opacity: 0.5; cursor: default; }
+  #setup-skip {
+    -webkit-app-region: no-drag;
+    margin-top: 10px;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 11px;
+    cursor: pointer;
+    text-decoration: underline;
+  }
 </style>
 </head>
 <body>
+
+  <div id="setup-overlay">
+    <div id="setup-title">What's your Discord username?</div>
+    <div id="setup-sub">This is shown on the shared leaderboard so friends can see who's listened the most this month.</div>
+    <input id="setup-input" type="text" placeholder="e.g. yourname" maxlength="32" autocomplete="off" />
+    <button id="setup-submit" disabled>Save</button>
+    <button id="setup-skip">Skip for now</button>
+  </div>
 
   <div id="drag-region">
     <span class="app-label">MUSIC TO DISCORD</span>
@@ -339,40 +523,63 @@
     <button class="win-btn" id="btn-close" title="Close" aria-label="Close window">&#10005;</button>
   </div>
 
-  <div id="hero">
-    <div id="art-wrap">
-      <img id="art-img" alt="" />
-      <div id="art-fallback">
-        <img src="../assets/fallback-art.png" alt="" />
+  <div id="tabs">
+    <button class="tab-btn active" id="tab-btn-now-playing">Now Playing</button>
+    <button class="tab-btn" id="tab-btn-leaderboard">Leaderboard</button>
+  </div>
+
+  <div id="view-now-playing">
+    <div id="hero">
+      <div id="art-wrap">
+        <img id="art-img" alt="" />
+        <div id="art-fallback">
+          <img src="../assets/fallback-art.png" alt="" />
+        </div>
+      </div>
+      <div id="track-meta">
+        <div id="eyebrow"><span id="status-dot"></span><span id="status-text">Checking…</span></div>
+        <div id="track-name">Nothing playing</div>
+        <div id="track-artist">Open Apple Music and press play</div>
       </div>
     </div>
-    <div id="track-meta">
-      <div id="eyebrow"><span id="status-dot"></span><span id="status-text">Checking…</span></div>
-      <div id="track-name">Nothing playing</div>
-      <div id="track-artist">Open Apple Music and press play</div>
+
+    <div id="timer-wrap">
+      <div id="timer-label">Time left</div>
+      <div id="timer-display">0:00</div>
+    </div>
+
+    <div id="groove-wrap">
+      <div id="groove">
+        <div id="groove-track"></div>
+        <div id="groove-fill"></div>
+        <div id="groove-needle"></div>
+      </div>
+      <div id="time-row">
+        <span id="time-elapsed">0:00</span>
+        <span id="time-remaining">&minus;0:00</span>
+      </div>
     </div>
   </div>
 
-  <div id="timer-wrap">
-    <div id="timer-label">Time left</div>
-    <div id="timer-display">0:00</div>
-  </div>
-
-  <div id="groove-wrap">
-    <div id="groove">
-      <div id="groove-track"></div>
-      <div id="groove-fill"></div>
-      <div id="groove-needle"></div>
-    </div>
-    <div id="time-row">
-      <span id="time-elapsed">0:00</span>
-      <span id="time-remaining">&minus;0:00</span>
+  <div id="view-leaderboard">
+    <div id="leaderboard-wrap">
+      <div id="leaderboard-month"></div>
+      <div id="leaderboard-list"></div>
+      <div id="leaderboard-empty">No one's on the board yet this month — be the first!</div>
+      <div id="leaderboard-error">Couldn't load the leaderboard. Check your connection and try again.</div>
     </div>
   </div>
 
   <div class="divider"></div>
 
   <div id="settings">
+    <div class="row">
+      <div>
+        <div class="row-label">Leaderboard name</div>
+        <div class="row-sub" id="username-sub">Not set</div>
+      </div>
+      <button class="pill-btn" id="btn-change-username">Set name</button>
+    </div>
     <div class="row">
       <div>
         <div class="row-label">Sync with Discord</div>

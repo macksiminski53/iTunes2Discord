@@ -38,6 +38,7 @@ function runApp() {
   const DiscordRPC = require('@xhayper/discord-rpc');
   const { autoUpdater } = require('electron-updater');
   const log = require('electron-log');
+  const { setLeaderboardEntry, listLeaderboardEntries } = require('./firestore');
 
   // ---- CONFIG ----
   // This is the app's Discord Application/Client ID (created once by the developer
@@ -63,6 +64,15 @@ function runApp() {
   const DISCORD_PUSH_MIN_INTERVAL_MS = 15000;
   const APP_NAME = 'MusicToDiscord';
 
+  // ---- Leaderboard config ----
+  // Listening time is tracked locally every poll while a track is actively
+  // playing, then pushed to Firestore periodically -- NOT every poll, since
+  // that would mean one write per user every 3 seconds, which would burn
+  // through Firestore's free-tier write quota fast with even a handful of
+  // concurrent users. 60s strikes a reasonable balance: the leaderboard
+  // updates often enough to feel "live" without writing constantly.
+  const LEADERBOARD_SYNC_INTERVAL_MS = 60000;
+
   let tray = null;
   let mainWindow = null;
   let rpc = null;
@@ -75,10 +85,69 @@ function runApp() {
   let enabled = true;
   let warnedUnsupportedPlatform = false;
 
+  // ---- Leaderboard state ----
+  let username = null; // null until the user has set one via the setup prompt
+  let sessionSecondsThisMonth = 0; // accumulated locally since last Firestore push
+  let lastLeaderboardPushAt = 0;
+  let leaderboardSyncTimer = null;
+
   // ---- Logging (writes to %APPDATA%/musictodiscord/logs) ----
   log.transports.file.level = 'info';
   log.transports.console.level = 'info';
   autoUpdater.logger = log;
+
+  // ---- Leaderboard username persistence ----
+  // Stored as a tiny local JSON file in Electron's per-user data folder
+  // (NOT in the project/install directory, which may not be writable and
+  // wouldn't survive an update/reinstall anyway). Asked once on first
+  // launch via the renderer's setup prompt; after that this file is the
+  // source of truth, so the prompt never reappears unless the file is
+  // deleted or the user explicitly changes their name in Settings.
+  function getUsernameFilePath() {
+    return path.join(app.getPath('userData'), 'username.json');
+  }
+
+  function loadUsername() {
+    try {
+      const raw = fs.readFileSync(getUsernameFilePath(), 'utf8');
+      const parsed = JSON.parse(raw);
+      return parsed.username || null;
+    } catch (e) {
+      return null; // file doesn't exist yet, or is malformed -- either way, no username set
+    }
+  }
+
+  function saveUsername(name) {
+    try {
+      fs.writeFileSync(getUsernameFilePath(), JSON.stringify({ username: name }), 'utf8');
+      return true;
+    } catch (e) {
+      log.warn('Failed to save username:', e.message);
+      return false;
+    }
+  }
+
+  function getCurrentMonthKey() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  // Pulls this user's already-synced total for the current month, if any,
+  // so an app restart resumes from where it left off instead of silently
+  // resetting to 0 -- which would otherwise cause the next periodic sync to
+  // overwrite Firestore with a lower number and erase previously-banked time.
+  async function loadExistingMonthlyTotal() {
+    if (!username) return 0;
+    try {
+      const entries = await listLeaderboardEntries();
+      const month = getCurrentMonthKey();
+      const mine = entries.find((e) => e.username === username && e.month === month);
+      return mine && typeof mine.totalSeconds === 'number' ? mine.totalSeconds : 0;
+    } catch (e) {
+      log.warn('Failed to load existing leaderboard total:', e.message);
+      return 0; // fail safe to 0 rather than block startup on a network issue
+    }
+  }
 
   // ---- Track polling (PowerShell/COM against iTunes, falling back to a
   // compiled smtc-helper.exe for Apple Music and other SMTC-aware apps) ----
@@ -374,6 +443,7 @@ function runApp() {
 
   // ---- Polling loop ----
   let firstPollDone = false;
+  let lastPollAt = null; // Date.now() of the previous poll, used to accumulate real elapsed listening time below
 
   async function pollLoop() {
     if (!enabled) {
@@ -383,6 +453,7 @@ function runApp() {
 
     try {
       const track = await getCurrentTrack();
+      const now = Date.now();
 
       if (track.state === 'not_running' || track.state === 'stopped') {
         // Always update on the very first poll, even with no change, so the
@@ -396,6 +467,19 @@ function runApp() {
         pushStateUpdate(track);
       } else {
         const key = `${track.name}|${track.artist}|${track.state}`;
+
+        // Leaderboard: accumulate real elapsed wall-clock time since the
+        // last poll, but only while actually playing (not paused) -- using
+        // the real gap rather than assuming a flat POLL_INTERVAL_MS guards
+        // against overcounting if a poll is ever slow, or the system was
+        // asleep/suspended between polls. Capped at 2x the poll interval so
+        // a long gap (laptop sleep, etc.) can't silently inflate someone's
+        // total by however many hours the machine was actually asleep.
+        if (track.state === 'playing' && lastPollAt !== null) {
+          const elapsedSec = (now - lastPollAt) / 1000;
+          const cappedSec = Math.min(elapsedSec, (POLL_INTERVAL_MS / 1000) * 2);
+          if (cappedSec > 0) sessionSecondsThisMonth += cappedSec;
+        }
 
         // Same song/state as last poll, but the position jumped backwards
         // (repeat-one looped, or the user scrubbed back) — without this,
@@ -426,6 +510,7 @@ function runApp() {
         lastPosition = track.position;
         pushStateUpdate(track);
       }
+      lastPollAt = now;
     } catch (err) {
       log.error('pollLoop error:', err.message);
       updateTrayTooltip(`${APP_NAME} — error, retrying...`);
@@ -433,6 +518,42 @@ function runApp() {
       firstPollDone = true;
       pollTimer = setTimeout(pollLoop, POLL_INTERVAL_MS);
     }
+  }
+
+  // ---- Leaderboard sync ----
+  // True once loadExistingMonthlyTotal() has resolved (or been skipped
+  // because there's no username yet). Guards against a narrow startup race:
+  // if the periodic sync timer or a quit-triggered push fired in the few
+  // hundred ms before that background fetch resolves, sessionSecondsThisMonth
+  // would still be its initial value, and pushing it would briefly overwrite
+  // Firestore with a lower number than the user's real total -- self-
+  // correcting on the next push, but better to just not push at all yet.
+  let monthlyTotalLoaded = false;
+
+  // Pushes the accumulated listening time to Firestore. Called periodically
+  // (see leaderboardSyncTimer below) rather than every poll, and also once
+  // immediately after a user sets their username for the first time.
+  async function pushLeaderboardUpdate() {
+    if (!username || !monthlyTotalLoaded) return;
+    const docId = `${username}_${getCurrentMonthKey()}`;
+    try {
+      await setLeaderboardEntry(docId, {
+        username,
+        month: getCurrentMonthKey(),
+        totalSeconds: Math.round(sessionSecondsThisMonth),
+        lastUpdated: new Date(),
+      });
+      lastLeaderboardPushAt = Date.now();
+    } catch (e) {
+      log.warn('Leaderboard sync failed:', e.message);
+    }
+  }
+
+  function startLeaderboardSync() {
+    if (leaderboardSyncTimer) clearInterval(leaderboardSyncTimer);
+    leaderboardSyncTimer = setInterval(() => {
+      pushLeaderboardUpdate().catch(() => {});
+    }, LEADERBOARD_SYNC_INTERVAL_MS);
   }
 
   // ---- Main window ----
@@ -534,6 +655,7 @@ function runApp() {
     syncEnabled: enabled,
     version: app.getVersion(),
     track: lastTrackState,
+    username,
   }));
 
   ipcMain.on('toggle-pause', () => {
@@ -556,7 +678,54 @@ function runApp() {
 
   ipcMain.on('quit-app', () => {
     if (connected && rpc?.user) rpc.user.clearActivity().catch(() => {});
-    app.quit();
+    pushLeaderboardUpdate().finally(() => app.quit());
+  });
+
+  // ---- Leaderboard IPC ----
+  // The renderer asks for this once on load to decide whether to show the
+  // one-time "what's your Discord username?" setup prompt.
+  ipcMain.handle('get-username', () => username);
+
+  ipcMain.handle('set-username', async (_event, name) => {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return false;
+
+    const isActuallyChanging = trimmed !== username;
+    username = trimmed;
+    saveUsername(trimmed);
+
+    if (isActuallyChanging) {
+      // Switching to a different name (whether this is the very first
+      // setup, or changing an existing name later) means whatever seconds
+      // were accumulated so far this session belong to a DIFFERENT
+      // leaderboard entry than the one we're about to write to. Look up
+      // this name's own existing total instead of carrying the old
+      // accumulator forward, which would incorrectly transplant one
+      // person's progress onto another name's entry.
+      monthlyTotalLoaded = false;
+      sessionSecondsThisMonth = await loadExistingMonthlyTotal();
+      monthlyTotalLoaded = true;
+    }
+
+    // Push an entry right away so a new/renamed user shows up on the
+    // leaderboard immediately rather than waiting up to a minute for the
+    // first periodic sync.
+    pushLeaderboardUpdate().catch((e) => log.warn('Initial leaderboard push failed:', e.message));
+    return true;
+  });
+
+  ipcMain.handle('get-leaderboard', async () => {
+    try {
+      const entries = await listLeaderboardEntries();
+      const month = getCurrentMonthKey();
+      return entries
+        .filter((e) => e.month === month && typeof e.totalSeconds === 'number')
+        .sort((a, b) => b.totalSeconds - a.totalSeconds)
+        .map((e) => ({ username: e.username, totalSeconds: e.totalSeconds }));
+    } catch (e) {
+      log.warn('Failed to fetch leaderboard:', e.message);
+      return null; // null (vs []) tells the renderer this was a fetch error, not "genuinely empty"
+    }
   });
 
   // ---- Tray UI ----
@@ -602,7 +771,7 @@ function runApp() {
         label: 'Quit',
         click: () => {
           if (connected && rpc?.user) rpc.user.clearActivity().catch(() => {});
-          app.quit();
+          pushLeaderboardUpdate().finally(() => app.quit());
         },
       },
     ]);
@@ -635,6 +804,12 @@ function runApp() {
   app.whenReady().then(() => {
     showWindowFromOtherInstance = createWindow;
 
+    // Load a previously-saved Discord username, if any -- the renderer
+    // checks this (via get-state/get-username) to decide whether to show
+    // the one-time setup prompt. This is just a local file read, so it's
+    // safe to do synchronously before anything else starts.
+    username = loadUsername();
+
     const iconPath = path.join(__dirname, '..', 'assets', 'tray-icon.png');
     tray = new Tray(nativeImage.createFromPath(iconPath));
     tray.setToolTip(`${APP_NAME} — starting...`);
@@ -652,6 +827,22 @@ function runApp() {
 
     connectDiscord();
     pollLoop();
+    startLeaderboardSync();
+
+    // Fetch this user's already-synced monthly total in the background,
+    // AFTER the window/tray/polling are already up -- deliberately not
+    // awaited before any of the above, since this is a network call to
+    // Firestore that could be slow or fail (no internet, rules not set up
+    // yet, etc.), and the core "show what's playing" experience must never
+    // be gated on that. If this fails or hasn't resolved yet, the periodic
+    // sync below just starts from 0 and self-corrects upward from there
+    // rather than the app hanging on launch.
+    if (username) {
+      loadExistingMonthlyTotal().then((existing) => {
+        sessionSecondsThisMonth = existing;
+        monthlyTotalLoaded = true;
+      });
+    }
 
     // Check for updates ~5s after launch, then silently every few hours.
     // Using checkForUpdates() (not checkForUpdatesAndNotify) since we have

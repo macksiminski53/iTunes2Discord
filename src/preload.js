@@ -14,4 +14,9 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   togglePause: () => ipcRenderer.send('toggle-pause'),
   checkForUpdates: () => ipcRenderer.send('check-for-updates'),
   quitApp: () => ipcRenderer.send('quit-app'),
+
+  // Leaderboard
+  getUsername: () => ipcRenderer.invoke('get-username'),
+  setUsername: (name) => ipcRenderer.invoke('set-username', name),
+  getLeaderboard: () => ipcRenderer.invoke('get-leaderboard'),
 });

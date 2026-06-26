@@ -17,6 +17,26 @@ const elBtnQuit = document.getElementById('btn-quit');
 const elBtnMin = document.getElementById('btn-min');
 const elBtnClose = document.getElementById('btn-close');
 
+// Leaderboard / tabs
+const elTabBtnNowPlaying = document.getElementById('tab-btn-now-playing');
+const elTabBtnLeaderboard = document.getElementById('tab-btn-leaderboard');
+const elLeaderboardMonth = document.getElementById('leaderboard-month');
+const elLeaderboardList = document.getElementById('leaderboard-list');
+const elLeaderboardEmpty = document.getElementById('leaderboard-empty');
+const elLeaderboardError = document.getElementById('leaderboard-error');
+
+// Username setup overlay
+const elSetupOverlay = document.getElementById('setup-overlay');
+const elSetupInput = document.getElementById('setup-input');
+const elSetupSubmit = document.getElementById('setup-submit');
+const elSetupSkip = document.getElementById('setup-skip');
+
+// Username settings row
+const elUsernameSub = document.getElementById('username-sub');
+const elBtnChangeUsername = document.getElementById('btn-change-username');
+
+let currentUsername = null;
+
 function formatTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
   const m = Math.floor(seconds / 60);
@@ -134,7 +154,130 @@ function render(state) {
   if (state.version) {
     elVersionSub.textContent = `v${state.version}`;
   }
+
+  if (typeof state.username !== 'undefined') {
+    currentUsername = state.username;
+    elUsernameSub.textContent = currentUsername ? currentUsername : 'Not set';
+  }
 }
+
+// ---- Leaderboard ----
+
+function formatListeningTime(totalSeconds) {
+  const s = Math.max(0, Math.round(totalSeconds || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function renderLeaderboard(entries) {
+  elLeaderboardList.innerHTML = '';
+  elLeaderboardEmpty.style.display = 'none';
+  elLeaderboardError.style.display = 'none';
+
+  const now = new Date();
+  const monthLabel = now.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+  elLeaderboardMonth.textContent = monthLabel;
+
+  if (entries === null) {
+    elLeaderboardError.style.display = 'block';
+    return;
+  }
+  if (entries.length === 0) {
+    elLeaderboardEmpty.style.display = 'block';
+    return;
+  }
+
+  entries.forEach((entry, i) => {
+    const row = document.createElement('div');
+    row.className = 'lb-row';
+    if (currentUsername && entry.username === currentUsername) {
+      row.classList.add('me');
+    }
+    row.innerHTML = `
+      <span class="lb-rank">${i + 1}</span>
+      <span class="lb-name"></span>
+      <span class="lb-time"></span>
+    `;
+    // Set text via textContent (not innerHTML) so a username can never be
+    // interpreted as markup -- usernames are arbitrary user input from
+    // potentially many different people, shared across everyone's window.
+    row.querySelector('.lb-name').textContent = entry.username || 'Unknown';
+    row.querySelector('.lb-time').textContent = formatListeningTime(entry.totalSeconds);
+    elLeaderboardList.appendChild(row);
+  });
+}
+
+let leaderboardRefreshTimer = null;
+
+function loadLeaderboard() {
+  window.musicToDiscord.getLeaderboard().then(renderLeaderboard);
+}
+
+function showTab(tab) {
+  const isLeaderboard = tab === 'leaderboard';
+  document.body.classList.toggle('tab-leaderboard', isLeaderboard);
+  elTabBtnNowPlaying.classList.toggle('active', !isLeaderboard);
+  elTabBtnLeaderboard.classList.toggle('active', isLeaderboard);
+
+  if (isLeaderboard) {
+    loadLeaderboard();
+    // Keep it reasonably fresh while the tab is actually open, without
+    // polling Firestore in the background when the user isn't even
+    // looking at it.
+    if (!leaderboardRefreshTimer) {
+      leaderboardRefreshTimer = setInterval(loadLeaderboard, 30000);
+    }
+  } else if (leaderboardRefreshTimer) {
+    clearInterval(leaderboardRefreshTimer);
+    leaderboardRefreshTimer = null;
+  }
+}
+
+elTabBtnNowPlaying.addEventListener('click', () => showTab('now-playing'));
+elTabBtnLeaderboard.addEventListener('click', () => showTab('leaderboard'));
+
+// ---- Username setup overlay ----
+elSetupInput.addEventListener('input', () => {
+  elSetupSubmit.disabled = elSetupInput.value.trim().length === 0;
+});
+
+elSetupInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !elSetupSubmit.disabled) {
+    elSetupSubmit.click();
+  }
+});
+
+elSetupSubmit.addEventListener('click', () => {
+  const name = elSetupInput.value.trim();
+  if (!name) return;
+  elSetupSubmit.disabled = true;
+  elSetupSubmit.textContent = 'Saving…';
+  window.musicToDiscord.setUsername(name).then(() => {
+    currentUsername = name;
+    elUsernameSub.textContent = name;
+    elSetupOverlay.classList.remove('show');
+    elSetupSubmit.textContent = 'Save';
+  });
+});
+
+elSetupSkip.addEventListener('click', () => {
+  // "Skip" just dismisses the overlay for this session -- it does NOT save
+  // a username, so the prompt will reappear next launch. There's
+  // intentionally no "don't ask again" here, since without a username
+  // there's nothing for the leaderboard to track for this person anyway.
+  elSetupOverlay.classList.remove('show');
+});
+
+elBtnChangeUsername.addEventListener('click', () => {
+  elSetupInput.value = currentUsername || '';
+  elSetupSubmit.disabled = !currentUsername;
+  elSetupSubmit.textContent = 'Save';
+  elSetupOverlay.classList.add('show');
+  elSetupInput.focus();
+  elSetupInput.select();
+});
 
 // ---- Wire up controls ----
 elToggleSync.addEventListener('click', () => window.musicToDiscord.togglePause());
@@ -156,5 +299,13 @@ elBtnMin.addEventListener('click', () => window.close());
 elBtnClose.addEventListener('click', () => window.close());
 
 // ---- Initial state + live updates ----
-window.musicToDiscord.getState().then(render);
+window.musicToDiscord.getState().then((state) => {
+  render(state);
+  // Show the one-time setup prompt only if no username has been saved yet
+  // (state.username comes from main.js's loadUsername(), read on launch).
+  if (!state.username) {
+    elSetupOverlay.classList.add('show');
+    elSetupInput.focus();
+  }
+});
 window.musicToDiscord.onStateUpdate(render);
