@@ -534,7 +534,18 @@ function runApp() {
   // (see leaderboardSyncTimer below) rather than every poll, and also once
   // immediately after a user sets their username for the first time.
   async function pushLeaderboardUpdate() {
-    if (!username || !monthlyTotalLoaded) return;
+    if (!username) return; // nothing to push until a name is set -- not worth logging, this is the normal pre-setup state
+    if (!monthlyTotalLoaded) {
+      // This used to return here completely silently, with no log line at
+      // all -- which is exactly why a real bug (this early-return firing on
+      // every single periodic sync, for reasons explained on
+      // monthlyTotalLoaded below) was invisible in the logs and impossible
+      // to diagnose from a user's report alone. Logging it now so a skipped
+      // sync is at least visible, even though the fix below should mean
+      // this should only ever be hit once, briefly, right at startup.
+      log.warn('Leaderboard sync skipped — still waiting on startup total fetch');
+      return;
+    }
     const docId = `${username}_${getCurrentMonthKey()}`;
     try {
       await setLeaderboardEntry(docId, {
@@ -544,6 +555,7 @@ function runApp() {
         lastUpdated: new Date(),
       });
       lastLeaderboardPushAt = Date.now();
+      log.info(`Leaderboard sync: ${username} -> ${Math.round(sessionSecondsThisMonth)}s this month`);
     } catch (e) {
       log.warn('Leaderboard sync failed:', e.message);
     }
@@ -827,21 +839,33 @@ function runApp() {
 
     connectDiscord();
     pollLoop();
-    startLeaderboardSync();
 
-    // Fetch this user's already-synced monthly total in the background,
-    // AFTER the window/tray/polling are already up -- deliberately not
-    // awaited before any of the above, since this is a network call to
-    // Firestore that could be slow or fail (no internet, rules not set up
-    // yet, etc.), and the core "show what's playing" experience must never
-    // be gated on that. If this fails or hasn't resolved yet, the periodic
-    // sync below just starts from 0 and self-corrects upward from there
-    // rather than the app hanging on launch.
+    // Fetch this user's already-synced monthly total BEFORE starting the
+    // periodic sync timer below -- deliberately not blocking window/tray/
+    // poll startup above on this network call, since Firestore could be
+    // slow or unreachable and the core "show what's playing" experience
+    // must never be gated on that. But the sync timer itself DOES need to
+    // wait: starting it immediately (the original approach) created a real
+    // race -- if this fetch was still in flight when the first 60s tick
+    // fired, that sync (and potentially more) got silently dropped, since
+    // pushLeaderboardUpdate() refused to push without a loaded baseline.
+    // That's exactly what was happening: every restart re-triggered the
+    // race, with zero logging to reveal it, so the leaderboard always
+    // lagged behind real listening time. Waiting for the fetch to settle
+    // before starting the timer removes the race rather than just gating
+    // around it.
     if (username) {
       loadExistingMonthlyTotal().then((existing) => {
         sessionSecondsThisMonth = existing;
         monthlyTotalLoaded = true;
+        startLeaderboardSync();
       });
+    } else {
+      // No username yet -- still start the timer so that once the user
+      // completes the setup prompt and set-username fires, periodic syncs
+      // are already running rather than needing yet another start call.
+      monthlyTotalLoaded = true;
+      startLeaderboardSync();
     }
 
     // Check for updates ~5s after launch, then silently every few hours.
