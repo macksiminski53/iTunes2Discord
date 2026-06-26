@@ -19,4 +19,9 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   getUsername: () => ipcRenderer.invoke('get-username'),
   setUsername: (name) => ipcRenderer.invoke('set-username', name),
   getLeaderboard: () => ipcRenderer.invoke('get-leaderboard'),
+  deleteMyStats: () => ipcRenderer.invoke('delete-my-stats'),
+  clearUsername: () => ipcRenderer.invoke('clear-username'),
+  onLeaderboardChanged: (callback) => {
+    ipcRenderer.on('leaderboard-changed', () => callback());
+  },
 });

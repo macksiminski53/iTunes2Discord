@@ -1,0 +1,109 @@
+rules_version = '2';
+
+// Security rules for the MusicToDiscord shared leaderboard.
+//
+// IMPORTANT CONTEXT: there is no real login/authentication in this app --
+// no password, no Firebase Auth, just a deviceId the app generates once per
+// install and includes in its own requests. These rules close the obvious
+// bypass paths (editing someone else's leaderboard entry, deleting someone
+// else's stats, stealing someone else's claimed username) by checking that
+// the deviceId in the INCOMING REQUEST matches the deviceId already on
+// record as owning that username. They do NOT provide real security against
+// someone who deliberately reads this app's source, finds another person's
+// deviceId some other way, and crafts a raw request with it -- that's a
+// fundamentally different problem that would need real auth (e.g. Firebase
+// Auth + sign-in) to solve properly. What these rules DO solve: the
+// realistic, casual case of someone (or a buggy client) accidentally or
+// carelessly overwriting another person's data through normal use of the
+// app or its API.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- usernames/{name} ----
+    // One doc per claimed name. Holds { deviceId, claimedAt }.
+    // This collection is the actual source of truth for "who owns this
+    // name" -- the leaderboard rules below check against it.
+    match /usernames/{name} {
+      // Anyone can read, so any install can check whether a name is taken
+      // before letting the user submit it.
+      allow read: if true;
+
+      // A name can be claimed if:
+      //  (a) it doesn't exist yet (first-time claim), OR
+      //  (b) it already belongs to the SAME deviceId making this request
+      //      (re-saving / refreshing your own claim -- not a takeover).
+      // Either way, the incoming document must actually contain a
+      // deviceId field of the right type -- this blocks a malformed or
+      // empty write from accidentally "claiming" a name with no real
+      // owner on record, which would otherwise let the NEXT person's
+      // check ((a) above) treat it as still free, defeating the point.
+      allow write: if request.resource.data.deviceId is string
+                   && request.resource.data.deviceId.size() > 0
+                   && (
+                        !exists(/databases/$(database)/documents/usernames/$(name))
+                        || resource.data.deviceId == request.resource.data.deviceId
+                      );
+
+      // Deleting a claim isn't something the app does today (removing a
+      // username locally intentionally leaves the claim in place -- see
+      // the clearUsername() comment in main.js). If that ever changes,
+      // note that a bare DELETE request has no request.resource to check
+      // a deviceId against (same limitation as the leaderboard collection
+      // below) -- this would need a real fix (e.g. Firebase Auth) before
+      // building a "release my claim" feature, not just enabling this
+      // rule as-is.
+      allow delete: if false;
+    }
+
+    // ---- leaderboard/{docId} ----
+    // docId format: "{username}_{YYYY-MM}", e.g. "Markus_2026-06".
+    // Holds { username, month, totalSeconds, lastUpdated }.
+    match /leaderboard/{docId} {
+      // Public leaderboard -- anyone can read everyone's entries.
+      allow read: if true;
+
+      // A write is only allowed if:
+      //  1. The document's own `username` field actually matches the
+      //     username portion of the doc ID (so you can't, say, write a
+      //     doc literally named "Markus_2026-06" but claim inside it that
+      //     the username field says "SomeoneElse" -- keeps the two
+      //     consistent so the ownership check below is checking the right
+      //     name), and
+      //  2. The deviceId on this document matches the deviceId already on
+      //     record as owning that username, per the usernames collection
+      //     above. (main.js's pushLeaderboardUpdate() includes a deviceId
+      //     field on every leaderboard write specifically so this check
+      //     has something real to compare against -- without it, this
+      //     condition would always fail.)
+      allow write: if request.resource.data.username is string
+                   && docId == request.resource.data.username + '_' + request.resource.data.month
+                   && exists(/databases/$(database)/documents/usernames/$(request.resource.data.username))
+                   && get(/databases/$(database)/documents/usernames/$(request.resource.data.username)).data.deviceId
+                      == request.resource.data.deviceId;
+
+      // Deleting "my stats": a DELETE request has no request.resource (there's
+      // no new document being written), so unlike the write rule above, we
+      // cannot check a deviceId against this request at all -- there's
+      // nothing in a bare DELETE call to check it against. Confirmed
+      // against Firestore's own canonical examples: their delete rules only
+      // ever reference resource.data (the EXISTING document), never
+      // request.resource, for exactly this reason.
+      //
+      // This is a genuine, acknowledged gap without real authentication:
+      // these rules can verify a name is claimed and consistent, but
+      // cannot verify that the device issuing a delete is the one that
+      // claimed it, the way the write rule above can (writes carry a
+      // deviceId in their own body to check; deletes don't carry a body at
+      // all). main.js is the only caller of deleteLeaderboardEntry() and
+      // only ever calls it for the signed-in device's own username, so the
+      // realistic risk in normal use of the app is low -- but a person
+      // calling the Firestore REST API directly could delete any entry.
+      // Closing this properly would mean moving to real Firebase Auth
+      // (request.auth.uid) instead of a self-reported deviceId, which is a
+      // bigger change than fits here -- flagging it rather than papering
+      // over it with a check that looks like it works but doesn't.
+      allow delete: if true;
+    }
+  }
+}

@@ -131,4 +131,56 @@ async function listLeaderboardEntries() {
   });
 }
 
-module.exports = { setLeaderboardEntry, listLeaderboardEntries };
+// Deletes one leaderboard document (e.g. "removes my stats" for a given
+// month). Firestore's DELETE is idempotent -- deleting a doc that doesn't
+// exist isn't an error -- so callers don't need to check existence first.
+async function deleteLeaderboardEntry(docId) {
+  const path = `${BASE_PATH}/leaderboard/${encodeDocId(docId)}`;
+  await request('DELETE', path);
+}
+
+// ---- Username claims ----
+// A separate `usernames` collection, one doc per claimed name, holding the
+// device ID that claimed it. This is the actual ownership record -- the
+// leaderboard collection itself can't serve that role since entries are
+// per-month and could be deleted (e.g. via deleteLeaderboardEntry above)
+// without the name itself becoming free again, which would be wrong.
+
+// Returns the deviceId that owns `name`, or null if it's unclaimed.
+async function getUsernameOwner(name) {
+  const path = `${BASE_PATH}/usernames/${encodeDocId(name)}`;
+  try {
+    const doc = await request('GET', path);
+    const fields = fromFirestoreFields(doc.fields);
+    return fields.deviceId || null;
+  } catch (e) {
+    // Firestore's REST API returns a 404-shaped error for a missing
+    // document rather than an empty success response -- that's the
+    // expected, normal case for an unclaimed name, not a real failure.
+    if (/404/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+// Claims `name` for `deviceId`. Callers are expected to have already
+// checked getUsernameOwner() and confirmed it's either unclaimed or already
+// owned by this same deviceId -- this function itself does not re-check,
+// since the main.js caller needs to do that check anyway to decide whether
+// to show a "name taken" error, and doing it twice would just be redundant
+// network calls without closing any real race (Firestore security rules,
+// not this client code, are the actual enforcement point against a
+// determined bad actor -- this is a casual-collision guard, not real auth).
+async function claimUsername(name, deviceId) {
+  const path = `${BASE_PATH}/usernames/${encodeDocId(name)}`;
+  await request('PATCH', path, {
+    fields: toFirestoreFields({ deviceId, claimedAt: new Date() }),
+  });
+}
+
+module.exports = {
+  setLeaderboardEntry,
+  listLeaderboardEntries,
+  deleteLeaderboardEntry,
+  getUsernameOwner,
+  claimUsername,
+};

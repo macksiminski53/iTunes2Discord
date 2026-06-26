@@ -38,7 +38,13 @@ function runApp() {
   const DiscordRPC = require('@xhayper/discord-rpc');
   const { autoUpdater } = require('electron-updater');
   const log = require('electron-log');
-  const { setLeaderboardEntry, listLeaderboardEntries } = require('./firestore');
+  const {
+    setLeaderboardEntry,
+    listLeaderboardEntries,
+    deleteLeaderboardEntry,
+    getUsernameOwner,
+    claimUsername,
+  } = require('./firestore');
 
   // ---- CONFIG ----
   // This is the app's Discord Application/Client ID (created once by the developer
@@ -87,6 +93,7 @@ function runApp() {
 
   // ---- Leaderboard state ----
   let username = null; // null until the user has set one via the setup prompt
+  let deviceId = null; // set once at startup via getOrCreateDeviceId()
   let sessionSecondsThisMonth = 0; // accumulated locally since last Firestore push
   let lastLeaderboardPushAt = 0;
   let leaderboardSyncTimer = null;
@@ -103,6 +110,16 @@ function runApp() {
   // launch via the renderer's setup prompt; after that this file is the
   // source of truth, so the prompt never reappears unless the file is
   // deleted or the user explicitly changes their name in Settings.
+  //
+  // The same file also holds a deviceId -- a random ID generated once per
+  // install and never shown in the UI. It's how username "ownership" is
+  // tracked: when a name is claimed, this ID gets stored alongside it in
+  // Firestore, so a different install trying to claim the same name can be
+  // told "no, that's taken." This is a casual-collision guard between
+  // friends, not real security -- there's no login or password involved,
+  // so a determined person could still find a way around it. It solves the
+  // actual problem (two people accidentally or jokingly grabbing the same
+  // name), not a security problem.
   function getUsernameFilePath() {
     return path.join(app.getPath('userData'), 'username.json');
   }
@@ -119,10 +136,59 @@ function runApp() {
 
   function saveUsername(name) {
     try {
-      fs.writeFileSync(getUsernameFilePath(), JSON.stringify({ username: name }), 'utf8');
+      const existing = readUsernameFile();
+      fs.writeFileSync(
+        getUsernameFilePath(),
+        JSON.stringify({ ...existing, username: name }),
+        'utf8'
+      );
       return true;
     } catch (e) {
       log.warn('Failed to save username:', e.message);
+      return false;
+    }
+  }
+
+  function readUsernameFile() {
+    try {
+      return JSON.parse(fs.readFileSync(getUsernameFilePath(), 'utf8'));
+    } catch (e) {
+      return {};
+    }
+  }
+
+  // Returns this install's device ID, generating and persisting a new one
+  // the very first time it's needed if one doesn't exist yet.
+  function getOrCreateDeviceId() {
+    const existing = readUsernameFile();
+    if (existing.deviceId) return existing.deviceId;
+    const deviceId = crypto.randomUUID();
+    try {
+      fs.writeFileSync(
+        getUsernameFilePath(),
+        JSON.stringify({ ...existing, deviceId }),
+        'utf8'
+      );
+    } catch (e) {
+      log.warn('Failed to persist device ID:', e.message);
+    }
+    return deviceId;
+  }
+
+  function clearUsername() {
+    try {
+      const existing = readUsernameFile();
+      // Keep deviceId (it's tied to this install, not to any one
+      // username) but drop the username itself so the setup prompt
+      // reappears on next launch.
+      fs.writeFileSync(
+        getUsernameFilePath(),
+        JSON.stringify({ deviceId: existing.deviceId }),
+        'utf8'
+      );
+      return true;
+    } catch (e) {
+      log.warn('Failed to clear username:', e.message);
       return false;
     }
   }
@@ -553,6 +619,7 @@ function runApp() {
         month: getCurrentMonthKey(),
         totalSeconds: Math.round(sessionSecondsThisMonth),
         lastUpdated: new Date(),
+        deviceId,
       });
       lastLeaderboardPushAt = Date.now();
       log.info(`Leaderboard sync: ${username} -> ${Math.round(sessionSecondsThisMonth)}s this month`);
@@ -700,11 +767,45 @@ function runApp() {
 
   ipcMain.handle('set-username', async (_event, name) => {
     const trimmed = (name || '').trim();
-    if (!trimmed) return false;
+    if (!trimmed) return { ok: false, reason: 'empty' };
+
+    // If they're just re-saving the name they already have, there's
+    // nothing to claim or check -- skip straight to "already fine."
+    if (trimmed === username) {
+      return { ok: true };
+    }
+
+    // Check ownership before claiming. A name is rejected only if it's
+    // already claimed by a DIFFERENT device -- if it's unclaimed, or
+    // already claimed by this exact device (e.g. they cleared their local
+    // username file but Firestore still remembers this device claimed it
+    // before), it's fine to proceed.
+    try {
+      const owner = await getUsernameOwner(trimmed);
+      if (owner && owner !== deviceId) {
+        return { ok: false, reason: 'taken' };
+      }
+    } catch (e) {
+      log.warn('Username ownership check failed:', e.message);
+      // Network/Firestore issue, not a real "taken" conflict -- fail
+      // closed on the safe side (don't let a name through unchecked) but
+      // give a distinct reason so the UI can say something more honest
+      // than "taken."
+      return { ok: false, reason: 'check_failed' };
+    }
 
     const isActuallyChanging = trimmed !== username;
     username = trimmed;
     saveUsername(trimmed);
+
+    try {
+      await claimUsername(trimmed, deviceId);
+    } catch (e) {
+      log.warn('Failed to claim username:', e.message);
+      // The local save above still happened, so the app keeps working --
+      // worst case, someone else could theoretically grab the same name
+      // before this retries. Not worth blocking the whole flow over.
+    }
 
     if (isActuallyChanging) {
       // Switching to a different name (whether this is the very first
@@ -723,8 +824,48 @@ function runApp() {
     // leaderboard immediately rather than waiting up to a minute for the
     // first periodic sync.
     pushLeaderboardUpdate().catch((e) => log.warn('Initial leaderboard push failed:', e.message));
+    return { ok: true };
+  });
+
+  // "Delete my stats" -- removes this user's leaderboard entry for the
+  // CURRENT month only (past months, if any survive, are left alone; there
+  // isn't a UI for viewing past months anyway, so this matches what the
+  // user can actually see and is reasoning about when they hit the button).
+  // Does not affect the username claim itself -- the name stays theirs.
+  ipcMain.handle('delete-my-stats', async () => {
+    if (!username) return false;
+    try {
+      await deleteLeaderboardEntry(`${username}_${getCurrentMonthKey()}`);
+      sessionSecondsThisMonth = 0;
+      loadLeaderboardAfterChange();
+      return true;
+    } catch (e) {
+      log.warn('Failed to delete leaderboard entry:', e.message);
+      return false;
+    }
+  });
+
+  // "Forget my username" -- clears the locally-saved name (so the setup
+  // prompt reappears) WITHOUT deleting the Firestore leaderboard entry or
+  // releasing the claim -- the name stays reserved for this device, so if
+  // they set the same name again later, nothing about ownership changes.
+  // Deleting stats (above) is a separate, explicit action.
+  ipcMain.handle('clear-username', () => {
+    username = null;
+    sessionSecondsThisMonth = 0;
+    monthlyTotalLoaded = true; // nothing to load for "no username"
+    clearUsername();
     return true;
   });
+
+  function loadLeaderboardAfterChange() {
+    // Best-effort nudge so the renderer's leaderboard view (if currently
+    // open) reflects a delete immediately rather than waiting for its own
+    // 30s refresh -- mirrors how pushStateUpdate proactively notifies the
+    // window elsewhere in this file instead of making the renderer poll.
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send('leaderboard-changed');
+  }
 
   ipcMain.handle('get-leaderboard', async () => {
     try {
@@ -821,6 +962,7 @@ function runApp() {
     // the one-time setup prompt. This is just a local file read, so it's
     // safe to do synchronously before anything else starts.
     username = loadUsername();
+    deviceId = getOrCreateDeviceId();
 
     const iconPath = path.join(__dirname, '..', 'assets', 'tray-icon.png');
     tray = new Tray(nativeImage.createFromPath(iconPath));

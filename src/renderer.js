@@ -30,10 +30,13 @@ const elSetupOverlay = document.getElementById('setup-overlay');
 const elSetupInput = document.getElementById('setup-input');
 const elSetupSubmit = document.getElementById('setup-submit');
 const elSetupSkip = document.getElementById('setup-skip');
+const elSetupError = document.getElementById('setup-error');
 
 // Username settings row
 const elUsernameSub = document.getElementById('username-sub');
 const elBtnChangeUsername = document.getElementById('btn-change-username');
+const elBtnRemoveUsername = document.getElementById('btn-remove-username');
+const elBtnDeleteStats = document.getElementById('btn-delete-stats');
 
 let currentUsername = null;
 
@@ -158,6 +161,8 @@ function render(state) {
   if (typeof state.username !== 'undefined') {
     currentUsername = state.username;
     elUsernameSub.textContent = currentUsername ? currentUsername : 'Not set';
+    elBtnRemoveUsername.style.display = currentUsername ? 'block' : 'none';
+    elBtnDeleteStats.disabled = !currentUsername;
   }
 }
 
@@ -241,6 +246,8 @@ elTabBtnLeaderboard.addEventListener('click', () => showTab('leaderboard'));
 // ---- Username setup overlay ----
 elSetupInput.addEventListener('input', () => {
   elSetupSubmit.disabled = elSetupInput.value.trim().length === 0;
+  elSetupInput.classList.remove('error');
+  elSetupError.classList.remove('show');
 });
 
 elSetupInput.addEventListener('keydown', (e) => {
@@ -249,16 +256,43 @@ elSetupInput.addEventListener('keydown', (e) => {
   }
 });
 
+function showSetupError(message) {
+  elSetupInput.classList.add('error');
+  elSetupError.textContent = message;
+  elSetupError.classList.add('show');
+}
+
 elSetupSubmit.addEventListener('click', () => {
   const name = elSetupInput.value.trim();
   if (!name) return;
   elSetupSubmit.disabled = true;
   elSetupSubmit.textContent = 'Saving…';
-  window.musicToDiscord.setUsername(name).then(() => {
-    currentUsername = name;
-    elUsernameSub.textContent = name;
-    elSetupOverlay.classList.remove('show');
+  elSetupInput.classList.remove('error');
+  elSetupError.classList.remove('show');
+
+  window.musicToDiscord.setUsername(name).then((result) => {
     elSetupSubmit.textContent = 'Save';
+    if (result && result.ok) {
+      currentUsername = name;
+      elUsernameSub.textContent = name;
+      elBtnRemoveUsername.style.display = 'block';
+      elBtnDeleteStats.disabled = false;
+      elSetupOverlay.classList.remove('show');
+      return;
+    }
+
+    // Rejected -- figure out why and say something specific, then leave
+    // the overlay open with the name still in the box so they can just
+    // edit it and retry rather than starting over.
+    elSetupSubmit.disabled = false;
+    const reason = result && result.reason;
+    if (reason === 'taken') {
+      showSetupError("That name's already taken — try another.");
+    } else if (reason === 'check_failed') {
+      showSetupError("Couldn't check that name right now — check your connection and try again.");
+    } else {
+      showSetupError('Something went wrong saving that — try again.');
+    }
   });
 });
 
@@ -272,11 +306,55 @@ elSetupSkip.addEventListener('click', () => {
 
 elBtnChangeUsername.addEventListener('click', () => {
   elSetupInput.value = currentUsername || '';
+  elSetupInput.classList.remove('error');
+  elSetupError.classList.remove('show');
   elSetupSubmit.disabled = !currentUsername;
   elSetupSubmit.textContent = 'Save';
   elSetupOverlay.classList.add('show');
   elSetupInput.focus();
   elSetupInput.select();
+});
+
+elBtnRemoveUsername.addEventListener('click', () => {
+  // This is the more drastic of the two destructive actions -- it doesn't
+  // touch Firestore (the leaderboard entry and the name's claim both stay
+  // exactly as they are), it just forgets the name locally so the setup
+  // prompt reappears, as if this were a fresh install. A simple native
+  // confirm() is enough friction here given how easy it is to undo (just
+  // re-enter the same name) -- it stays claimed for this device either way.
+  const confirmed = window.confirm(
+    `Remove "${currentUsername}" from this app? Your leaderboard entry stays online — this just forgets the name on this device, and you'll be asked to set one again.`
+  );
+  if (!confirmed) return;
+  window.musicToDiscord.clearUsername().then(() => {
+    currentUsername = null;
+    elUsernameSub.textContent = 'Not set';
+    elBtnRemoveUsername.style.display = 'none';
+    elBtnDeleteStats.disabled = true;
+    elSetupInput.value = '';
+    elSetupInput.classList.remove('error');
+    elSetupError.classList.remove('show');
+    elSetupSubmit.disabled = true;
+    elSetupOverlay.classList.add('show');
+    elSetupInput.focus();
+  });
+});
+
+elBtnDeleteStats.addEventListener('click', () => {
+  if (!currentUsername) return;
+  const confirmed = window.confirm(
+    "Reset this month's listening time to 0 on the leaderboard? This can't be undone."
+  );
+  if (!confirmed) return;
+  elBtnDeleteStats.disabled = true;
+  elBtnDeleteStats.textContent = 'Deleting…';
+  window.musicToDiscord.deleteMyStats().then((ok) => {
+    elBtnDeleteStats.disabled = false;
+    elBtnDeleteStats.textContent = 'Delete';
+    // No need to manually refresh here -- main.js pushes a
+    // 'leaderboard-changed' event after a successful delete, which the
+    // listener at the bottom of this file picks up and refreshes from.
+  });
 });
 
 // ---- Wire up controls ----
@@ -309,3 +387,12 @@ window.musicToDiscord.getState().then((state) => {
   }
 });
 window.musicToDiscord.onStateUpdate(render);
+
+// Main process notifies us of leaderboard changes it made itself (e.g. a
+// delete) so the board reflects it right away if it's currently open,
+// rather than waiting for the next 30s auto-refresh.
+window.musicToDiscord.onLeaderboardChanged(() => {
+  if (document.body.classList.contains('tab-leaderboard')) {
+    loadLeaderboard();
+  }
+});

@@ -298,6 +298,8 @@
   }
   .pill-btn:hover { border-color: var(--indigo); }
   .pill-btn:active { transform: scale(0.97); }
+  .pill-btn:disabled { opacity: 0.4; cursor: default; }
+  .pill-btn:disabled:hover { border-color: var(--divider); }
 
   .pill-btn.danger:hover { border-color: var(--bad); }
 
@@ -482,6 +484,17 @@
     box-sizing: border-box;
   }
   #setup-input:focus { border-color: var(--indigo); }
+  #setup-input.error { border-color: #ED4245; }
+  #setup-error {
+    width: 100%;
+    font-size: 11px;
+    color: #ED4245;
+    text-align: left;
+    margin: -6px 0 12px;
+    min-height: 14px;
+    display: none;
+  }
+  #setup-error.show { display: block; }
   #setup-submit {
     -webkit-app-region: no-drag;
     width: 100%;
@@ -505,6 +518,20 @@
     cursor: pointer;
     text-decoration: underline;
   }
+
+  .text-link-btn {
+    -webkit-app-region: no-drag;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 11px;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+    margin-top: 4px;
+    display: block;
+  }
+  .text-link-btn.danger-text { color: #ED4245; }
 </style>
 </head>
 <body>
@@ -513,6 +540,7 @@
     <div id="setup-title">What's your Discord username?</div>
     <div id="setup-sub">This is shown on the shared leaderboard so friends can see who's listened the most this month.</div>
     <input id="setup-input" type="text" placeholder="e.g. yourname" maxlength="32" autocomplete="off" />
+    <div id="setup-error"></div>
     <button id="setup-submit" disabled>Save</button>
     <button id="setup-skip">Skip for now</button>
   </div>
@@ -577,8 +605,16 @@
       <div>
         <div class="row-label">Leaderboard name</div>
         <div class="row-sub" id="username-sub">Not set</div>
+        <button class="text-link-btn danger-text" id="btn-remove-username">Remove username entirely</button>
       </div>
       <button class="pill-btn" id="btn-change-username">Set name</button>
+    </div>
+    <div class="row" id="row-delete-stats">
+      <div>
+        <div class="row-label">My leaderboard stats</div>
+        <div class="row-sub">Resets this month's listening time to 0</div>
+      </div>
+      <button class="pill-btn danger" id="btn-delete-stats">Delete</button>
     </div>
     <div class="row">
       <div>
