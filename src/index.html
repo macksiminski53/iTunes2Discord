@@ -33,6 +33,7 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
+    overflow-y: auto;
   }
 
   #drag-region {
@@ -96,10 +97,10 @@
 
   #art-wrap {
     position: relative;
-    width: 88px;
-    height: 88px;
+    width: 104px;
+    height: 104px;
     flex-shrink: 0;
-    border-radius: 14px;
+    border-radius: 16px;
     overflow: hidden;
     background: linear-gradient(135deg, var(--indigo), var(--magenta) 55%, var(--sky));
     box-shadow: 0 8px 24px rgba(0,0,0,0.4);
@@ -150,16 +151,16 @@
   #status-dot.off { background: var(--bad); }
 
   #track-name {
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 700;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    margin-bottom: 2px;
+    margin-bottom: 3px;
   }
 
   #track-artist {
-    font-size: 13px;
+    font-size: 14px;
     color: var(--text-dim);
     white-space: nowrap;
     overflow: hidden;
@@ -238,7 +239,7 @@
 
   #timer-display {
     font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
-    font-size: 36px;
+    font-size: 42px;
     font-weight: 600;
     line-height: 1;
     letter-spacing: 0.5px;
@@ -263,15 +264,18 @@
     padding: 18px 28px 24px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
   }
 
   .row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 0;
+    gap: 16px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--divider);
   }
+  .row:last-child { border-bottom: none; }
 
   .row-label {
     font-size: 13px;
@@ -363,13 +367,17 @@
     background: rgba(88,101,242,0.12);
   }
 
-  #view-now-playing, #view-leaderboard {
+  #view-now-playing {
     display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  #view-leaderboard {
+    display: none;
     flex-direction: column;
     flex: 1;
     min-height: 0;
   }
-  #view-leaderboard { display: none; }
   body.tab-leaderboard #view-now-playing { display: none; }
   body.tab-leaderboard #view-leaderboard { display: flex; }
 
@@ -528,7 +536,7 @@
     cursor: pointer;
     text-decoration: underline;
     padding: 0;
-    margin-top: 4px;
+    margin-top: 6px;
     display: block;
   }
   .text-link-btn.danger-text { color: #ED4245; }

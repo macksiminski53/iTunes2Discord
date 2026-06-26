@@ -644,9 +644,13 @@ function runApp() {
     }
 
     mainWindow = new BrowserWindow({
-      width: 360,
-      height: 560,
-      resizable: false,
+      width: 420,
+      height: 680,
+      minWidth: 360,
+      minHeight: 520,
+      maxWidth: 640,
+      maxHeight: 900,
+      resizable: true,
       maximizable: false,
       fullscreenable: false,
       backgroundColor: '#0F0F14',
