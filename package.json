@@ -12,7 +12,7 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win",
-    "publish": "electron-builder --win --mac --publish always"
+    "publish": "electron-builder --publish always"
   },
   "build": {
     "appId": "com.yourname.musictodiscord",

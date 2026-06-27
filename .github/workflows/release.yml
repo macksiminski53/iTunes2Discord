@@ -1,31 +1,41 @@
 name: Build and Release
-
-# Runs whenever you push a tag like "v1.0.1" -- builds the Windows installer
-# and publishes it to GitHub Releases automatically. electron-updater (inside
-# the app) checks this Releases page to offer auto-updates to users.
-
+# Runs whenever you push a tag like "v1.0.1" -- builds the Windows and macOS
+# installers and publishes them to GitHub Releases automatically.
+# electron-updater (inside the app) checks this Releases page to offer
+# auto-updates to users.
 on:
   push:
     tags:
       - 'v*.*.*'
-
 jobs:
   build-windows:
     runs-on: windows-latest
-
     steps:
       - name: Check out code
         uses: actions/checkout@v4
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-
       - name: Install dependencies
         run: npm install
-
       - name: Build and publish Windows installer
-        run: npm run publish
+        run: electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install
+      - name: Build and publish macOS installer
+        run: electron-builder --mac --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
