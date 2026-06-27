@@ -20,6 +20,7 @@ const elBtnClose = document.getElementById('btn-close');
 // Leaderboard / tabs
 const elTabBtnNowPlaying = document.getElementById('tab-btn-now-playing');
 const elTabBtnLeaderboard = document.getElementById('tab-btn-leaderboard');
+const elTabBtnWrapped = document.getElementById('tab-btn-wrapped');
 const elTabBtnDev = document.getElementById('tab-btn-dev');
 const elLeaderboardMonth = document.getElementById('leaderboard-month');
 const elLeaderboardList = document.getElementById('leaderboard-list');
@@ -248,15 +249,14 @@ let devRefreshTimer = null;
 function showTab(tab) {
   document.body.classList.toggle('tab-leaderboard', tab === 'leaderboard');
   document.body.classList.toggle('tab-dev', tab === 'dev');
+  document.body.classList.toggle('tab-wrapped', tab === 'wrapped');
   elTabBtnNowPlaying.classList.toggle('active', tab === 'now-playing');
   elTabBtnLeaderboard.classList.toggle('active', tab === 'leaderboard');
   elTabBtnDev.classList.toggle('active', tab === 'dev');
+  elTabBtnWrapped.classList.toggle('active', tab === 'wrapped');
 
   if (tab === 'leaderboard') {
     loadLeaderboard();
-    // Keep it reasonably fresh while the tab is actually open, without
-    // polling Firestore in the background when the user isn't even
-    // looking at it.
     if (!leaderboardRefreshTimer) {
       leaderboardRefreshTimer = setInterval(loadLeaderboard, 30000);
     }
@@ -274,11 +274,16 @@ function showTab(tab) {
     clearInterval(devRefreshTimer);
     devRefreshTimer = null;
   }
+
+  if (tab === 'wrapped') {
+    loadWrapped();
+  }
 }
 
 elTabBtnNowPlaying.addEventListener('click', () => showTab('now-playing'));
 elTabBtnLeaderboard.addEventListener('click', () => showTab('leaderboard'));
 elTabBtnDev.addEventListener('click', () => showTab('dev'));
+elTabBtnWrapped.addEventListener('click', () => showTab('wrapped'));
 
 // ---- Dev mode ----
 function formatDevValue(val) {
@@ -569,3 +574,120 @@ window.musicToDiscord.onLeaderboardChanged(() => {
     loadLeaderboard();
   }
 });
+
+// ---- Wrapped ----
+function formatListeningTimeWrapped(seconds) {
+  const s = Math.max(0, Math.round(seconds || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${s}s`;
+}
+
+function formatHour(hour) {
+  if (hour === 0) return '12am';
+  if (hour < 12) return `${hour}am`;
+  if (hour === 12) return '12pm';
+  return `${hour - 12}pm`;
+}
+
+function formatMonthLabel(monthKey) {
+  const [year, mon] = monthKey.split('-').map(Number);
+  return new Date(year, mon - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+async function loadWrapped() {
+  const select = document.getElementById('wrapped-month-select');
+  const emptyEl = document.getElementById('wrapped-empty');
+  const contentEl = document.getElementById('wrapped-content');
+
+  // Load available months into the dropdown
+  const months = await window.musicToDiscord.getWrappedMonths();
+  if (!months || months.length === 0) {
+    select.style.display = 'none';
+    emptyEl.style.display = 'block';
+    contentEl.style.display = 'none';
+    return;
+  }
+
+  select.style.display = '';
+  if (select.options.length === 0 || select.dataset.loaded !== 'true') {
+    select.innerHTML = months
+      .map((m) => `<option value="${m}">${formatMonthLabel(m)}</option>`)
+      .join('');
+    select.dataset.loaded = 'true';
+    select.onchange = () => renderWrapped(select.value);
+  }
+
+  renderWrapped(select.value || months[0]);
+}
+
+async function renderWrapped(monthKey) {
+  const emptyEl = document.getElementById('wrapped-empty');
+  const contentEl = document.getElementById('wrapped-content');
+
+  const data = await window.musicToDiscord.getWrapped(monthKey);
+
+  if (!data) {
+    emptyEl.style.display = 'block';
+    contentEl.style.display = 'none';
+    return;
+  }
+
+  emptyEl.style.display = 'none';
+  contentEl.style.display = 'flex';
+
+  // Stats
+  document.getElementById('wrapped-total-plays').textContent = data.totalPlays.toLocaleString();
+  document.getElementById('wrapped-total-time').textContent = formatListeningTimeWrapped(data.totalSeconds);
+  document.getElementById('wrapped-top-artist-short').textContent =
+    data.topArtists[0] ? data.topArtists[0].artist.split(' ')[0] : '—';
+  document.getElementById('wrapped-busiest-hour').textContent = formatHour(data.busiestHour);
+
+  // Top songs
+  const songsEl = document.getElementById('wrapped-top-songs');
+  songsEl.innerHTML = data.topSongs.map((s, i) => `
+    <div class="wrapped-rank-row">
+      <div class="wrapped-rank-num">${i + 1}</div>
+      <div class="wrapped-rank-info">
+        <div class="wrapped-rank-name">${esc(s.name)}</div>
+        <div class="wrapped-rank-sub">${esc(s.artist)}</div>
+      </div>
+      <div class="wrapped-rank-count">${s.count}×</div>
+    </div>
+  `).join('');
+
+  // Top artists
+  const artistsEl = document.getElementById('wrapped-top-artists');
+  artistsEl.innerHTML = data.topArtists.map((a, i) => `
+    <div class="wrapped-rank-row">
+      <div class="wrapped-rank-num">${i + 1}</div>
+      <div class="wrapped-rank-info">
+        <div class="wrapped-rank-name">${esc(a.artist || 'Unknown')}</div>
+      </div>
+      <div class="wrapped-rank-count">${a.count}×</div>
+    </div>
+  `).join('');
+
+  // Fun facts
+  const facts = [];
+  if (data.topSongs[0]) {
+    facts.push(`You played <span>${esc(data.topSongs[0].name)}</span> ${data.topSongs[0].count} times — your most-played song.`);
+  }
+  if (data.mostActiveDayLabel) {
+    facts.push(`Your most active day was <span>${data.mostActiveDayLabel}</span> with ${data.mostActiveDayCount} songs.`);
+  }
+  facts.push(`You listened most at <span>${formatHour(data.busiestHour)}</span>.`);
+
+  document.getElementById('wrapped-fun-facts').innerHTML = facts
+    .map((f) => `<div style="margin-bottom:10px">${f}</div>`)
+    .join('');
+}
+
+function esc(str) {
+  if (!str) return '';
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}

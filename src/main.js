@@ -79,6 +79,48 @@ function runApp() {
   // updates often enough to feel "live" without writing constantly.
   const LEADERBOARD_SYNC_INTERVAL_MS = 60000;
 
+  // ---- Local play history ----
+  // Saved to disk at %APPDATA%/musictodiscord/play-history.json
+  // Each entry: { name, artist, album, timestamp (ms), duration (s) }
+  // Kept separate from Firestore -- this is purely local, richer data
+  // used for the Wrapped feature. Capped at 10,000 entries.
+  const historyFile = path.join(app.getPath('userData'), 'play-history.json');
+
+  function loadHistory() {
+    try {
+      if (fs.existsSync(historyFile)) {
+        const parsed = JSON.parse(fs.readFileSync(historyFile, 'utf8'));
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (e) {
+      log.warn('Failed to load play history:', e.message);
+    }
+    return [];
+  }
+
+  let playHistory = loadHistory();
+
+  function saveHistory() {
+    try {
+      if (playHistory.length > 10000) playHistory = playHistory.slice(-10000);
+      fs.writeFileSync(historyFile, JSON.stringify(playHistory), 'utf8');
+    } catch (e) {
+      log.warn('Failed to save play history:', e.message);
+    }
+  }
+
+  function recordPlay(track) {
+    if (!track || !track.name) return;
+    playHistory.push({
+      name: track.name,
+      artist: track.artist || '',
+      album: track.album || '',
+      timestamp: Date.now(),
+      duration: track.duration || 0,
+    });
+    saveHistory();
+  }
+
   let tray = null;
   let mainWindow = null;
   let rpc = null;
@@ -713,11 +755,22 @@ function runApp() {
         const pushFloorElapsed = Date.now() - lastDiscordPushAt >= DISCORD_PUSH_MIN_INTERVAL_MS;
 
         if (isNewEvent || pushFloorElapsed) {
+          const previousTrackKey = lastTrackKey;
           const pushedOk = await setPresence(track);
           if (pushedOk) {
             lastTrackKey = key;
             lastDiscordPushAt = Date.now();
           }
+
+          // Record a play only on genuine track changes (not pause→play of
+          // the same song, and not position rewinds -- those reuse the same
+          // name+artist key as the song already playing).
+          const newSongKey = `${track.name}|${track.artist}`;
+          const prevSongKey = previousTrackKey ? previousTrackKey.replace(/\|(playing|paused)$/, '') : null;
+          if (newSongKey !== prevSongKey && track.state === 'playing') {
+            recordPlay(track);
+          }
+
           updateTrayTooltip(`${track.state === 'playing' ? '▶' : '⏸'} ${track.name} — ${track.artist}`);
           log.info('Now:', track.state, track.name, '-', track.artist);
         }
@@ -1060,6 +1113,91 @@ function runApp() {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.webContents.send('leaderboard-changed');
   }
+
+  // ---- Wrapped IPC ----
+  ipcMain.handle('get-wrapped', (_event, monthKey) => {
+    // monthKey format: "YYYY-MM". Defaults to current month.
+    const month = monthKey || getCurrentMonthKey();
+    const [year, mon] = month.split('-').map(Number);
+
+    const start = new Date(year, mon - 1, 1).getTime();
+    const end = new Date(year, mon, 1).getTime();
+
+    const entries = playHistory.filter(
+      (e) => e.timestamp >= start && e.timestamp < end
+    );
+
+    if (entries.length === 0) return null;
+
+    // Top songs
+    const songCounts = {};
+    for (const e of entries) {
+      const k = `${e.name}||${e.artist}`;
+      if (!songCounts[k]) songCounts[k] = { name: e.name, artist: e.artist, album: e.album, count: 0 };
+      songCounts[k].count++;
+    }
+    const topSongs = Object.values(songCounts)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    // Top artists
+    const artistCounts = {};
+    for (const e of entries) {
+      const k = e.artist || 'Unknown';
+      if (!artistCounts[k]) artistCounts[k] = { artist: k, count: 0 };
+      artistCounts[k].count++;
+    }
+    const topArtists = Object.values(artistCounts)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    // Busiest hour (0-23)
+    const hourCounts = new Array(24).fill(0);
+    for (const e of entries) {
+      hourCounts[new Date(e.timestamp).getHours()]++;
+    }
+    const busiestHour = hourCounts.indexOf(Math.max(...hourCounts));
+
+    // Total plays and estimated listening time
+    const totalPlays = entries.length;
+    const totalSeconds = entries.reduce((sum, e) => sum + (e.duration || 0), 0);
+
+    // Most active day
+    const dayCounts = {};
+    for (const e of entries) {
+      const d = new Date(e.timestamp);
+      const dk = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      dayCounts[dk] = (dayCounts[dk] || 0) + 1;
+    }
+    const mostActiveDay = Object.entries(dayCounts)
+      .sort((a, b) => b[1] - a[1])[0];
+    const mostActiveDayDate = mostActiveDay
+      ? new Date(...mostActiveDay[0].split('-').map(Number))
+      : null;
+
+    return {
+      month,
+      totalPlays,
+      totalSeconds: Math.round(totalSeconds),
+      topSongs,
+      topArtists,
+      busiestHour,
+      mostActiveDayLabel: mostActiveDayDate
+        ? mostActiveDayDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+        : null,
+      mostActiveDayCount: mostActiveDay ? mostActiveDay[1] : 0,
+    };
+  });
+
+  ipcMain.handle('get-wrapped-months', () => {
+    // Returns a list of months that have any history, most recent first
+    const months = new Set();
+    for (const e of playHistory) {
+      const d = new Date(e.timestamp);
+      months.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+    return [...months].sort().reverse();
+  });
 
   ipcMain.handle('get-leaderboard', async () => {
     try {

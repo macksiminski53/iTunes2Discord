@@ -21,6 +21,10 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   getLeaderboard: () => ipcRenderer.invoke('get-leaderboard'),
   deleteMyStats: () => ipcRenderer.invoke('delete-my-stats'),
   clearUsername: () => ipcRenderer.invoke('clear-username'),
+
+  // Wrapped
+  getWrapped: (monthKey) => ipcRenderer.invoke('get-wrapped', monthKey),
+  getWrappedMonths: () => ipcRenderer.invoke('get-wrapped-months'),
   onLeaderboardChanged: (callback) => {
     ipcRenderer.on('leaderboard-changed', () => callback());
   },

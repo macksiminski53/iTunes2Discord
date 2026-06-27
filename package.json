@@ -1,6 +1,6 @@
 {
   "name": "musictodiscord",
-  "version": "1.5.6",
+  "version": "1.5.7",
   "description": "Shows your Apple Music or iTunes now-playing track as Discord Rich Presence",
   "main": "src/main.js",
   "author": "Mak Siminski",
@@ -12,7 +12,7 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win",
-    "publish": "electron-builder --publish always"
+    "publish": "electron-builder --win --publish always"
   },
   "build": {
     "appId": "com.yourname.musictodiscord",
@@ -37,21 +37,8 @@
       "assets/**/*",
       "package.json"
     ],
-    "mac": {
-      "target": ["dmg", "zip"],
-      "icon": "assets/icon.icns",
-      "category": "public.app-category.music",
-      "hardenedRuntime": true,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
-      "extendInfo": {
-        "NSAppleEventsUsageDescription": "MusicToDiscord needs permission to check what's playing in Music so it can update your Discord status.",
-        "LSUIElement": true
-      }
-    },
     "asarUnpack": [
-      "src/get-track.ps1",
-      "src/get-track.applescript"
+      "src/get-track.ps1"
     ],
     "extraResources": [
       {

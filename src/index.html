@@ -730,6 +730,138 @@
     display: block;
   }
   .text-link-btn.danger-text { color: #ED4245; }
+  /* ---- Wrapped view ---- */
+  #view-wrapped {
+    display: none;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 20px 20px 28px;
+    gap: 14px;
+  }
+  body.tab-wrapped #view-wrapped { display: flex; }
+
+  #wrapped-month-select {
+    -webkit-app-region: no-drag;
+    background: var(--bg-raised);
+    border: 1px solid var(--divider);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 10px;
+    border-radius: 8px;
+    outline: none;
+    cursor: pointer;
+    width: 100%;
+  }
+  #wrapped-month-select:focus { border-color: var(--indigo); }
+
+  #wrapped-empty {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 13px;
+    padding: 40px 0;
+    display: none;
+  }
+
+  #wrapped-content { display: flex; flex-direction: column; gap: 14px; }
+
+  .wrapped-card {
+    background: var(--bg-raised);
+    border: 1px solid var(--divider);
+    border-radius: 14px;
+    padding: 16px 18px;
+  }
+
+  .wrapped-card-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+
+  .wrapped-stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .wrapped-stat {
+    background: var(--bg);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+
+  .wrapped-stat-value {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1;
+    margin-bottom: 3px;
+  }
+
+  .wrapped-stat-label {
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .wrapped-rank-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .wrapped-rank-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .wrapped-rank-num {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--indigo);
+    width: 18px;
+    flex-shrink: 0;
+    text-align: center;
+  }
+
+  .wrapped-rank-info { flex: 1; min-width: 0; }
+
+  .wrapped-rank-name {
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .wrapped-rank-sub {
+    font-size: 11px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .wrapped-rank-count {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  .wrapped-highlight {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.4;
+  }
+
+  .wrapped-highlight span {
+    color: var(--magenta);
+  }
 </style>
 </head>
 <body>
@@ -752,6 +884,7 @@
   <div id="tabs">
     <button class="tab-btn active" id="tab-btn-now-playing">Now Playing</button>
     <button class="tab-btn" id="tab-btn-leaderboard">Leaderboard</button>
+    <button class="tab-btn" id="tab-btn-wrapped">Wrapped</button>
     <button class="tab-btn" id="tab-btn-dev" style="display: none;">Dev</button>
   </div>
 
@@ -797,6 +930,25 @@
     </div>
   </div>
 
+
+  <div id="view-wrapped">
+    <select id="wrapped-month-select"></select>
+    <div id="wrapped-empty">No listening history yet for this month.<br>Play some music and check back!</div>
+    <div id="wrapped-content">
+      <div class="wrapped-card">
+        <div class="wrapped-card-title">This month at a glance</div>
+        <div class="wrapped-stat-grid">
+          <div class="wrapped-stat"><div class="wrapped-stat-value" id="wrapped-total-plays">—</div><div class="wrapped-stat-label">Songs played</div></div>
+          <div class="wrapped-stat"><div class="wrapped-stat-value" id="wrapped-total-time">—</div><div class="wrapped-stat-label">Listening time</div></div>
+          <div class="wrapped-stat"><div class="wrapped-stat-value" id="wrapped-top-artist-short">—</div><div class="wrapped-stat-label">Top artist</div></div>
+          <div class="wrapped-stat"><div class="wrapped-stat-value" id="wrapped-busiest-hour">—</div><div class="wrapped-stat-label">Peak hour</div></div>
+        </div>
+      </div>
+      <div class="wrapped-card"><div class="wrapped-card-title">Top songs</div><div class="wrapped-rank-list" id="wrapped-top-songs"></div></div>
+      <div class="wrapped-card"><div class="wrapped-card-title">Top artists</div><div class="wrapped-rank-list" id="wrapped-top-artists"></div></div>
+      <div class="wrapped-card"><div class="wrapped-card-title">Fun facts</div><div class="wrapped-highlight" id="wrapped-fun-facts"></div></div>
+    </div>
+  </div>
   <div id="view-dev">
     <div id="dev-wrap">
 
