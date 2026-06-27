@@ -1250,6 +1250,37 @@ function runApp() {
     };
   });
 
+  // ---- Owner push notifications ----
+  // Sends a native OS notification to this machine. Owner-mode-only.
+  // Since the app has no server, this only fires on machines where the
+  // app is currently running -- it's a broadcast to "anyone online now,"
+  // not a true server push to all users.
+  ipcMain.handle('send-owner-notification', (_event, { title, body }) => {
+    if (!ownerModeEnabled) return false;
+    const trimmedTitle = (title || '').trim();
+    const trimmedBody = (body || '').trim();
+    if (!trimmedTitle && !trimmedBody) return false;
+
+    try {
+      const { Notification } = require('electron');
+      if (!Notification.isSupported()) {
+        log.warn('Notifications not supported on this platform');
+        return false;
+      }
+      const n = new Notification({
+        title: trimmedTitle || APP_NAME,
+        body: trimmedBody || '',
+        icon: path.join(__dirname, '..', 'assets', 'tray-icon.png'),
+      });
+      n.show();
+      log.info(`Owner notification sent: "${trimmedTitle}" — "${trimmedBody}"`);
+      return true;
+    } catch (e) {
+      log.warn('Failed to send notification:', e.message);
+      return false;
+    }
+  });
+
   // Every leaderboard entry, every user, every month -- unlike
   // get-leaderboard above, deliberately NOT filtered to the current month,
   // since a dev tool for poking at the data should see all of it.

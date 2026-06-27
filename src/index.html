@@ -960,6 +960,17 @@
           </div>
           <button class="pill-btn danger" id="dev-disable-passcode-btn">Disable 1hr</button>
         </div>
+        <div style="margin-top: 14px;">
+          <div class="dev-owner-info" style="margin-bottom: 8px; font-size: 12px; color: var(--text-dim);">Push notification (fires on this machine now)</div>
+          <input id="owner-notif-title" type="text" placeholder="Title (optional)" maxlength="64"
+            style="-webkit-app-region:no-drag;width:100%;background:var(--bg-raised);border:1px solid var(--divider);color:var(--text);font-size:12px;padding:7px 10px;border-radius:8px;outline:none;box-sizing:border-box;margin-bottom:6px;" />
+          <input id="owner-notif-body" type="text" placeholder="Message" maxlength="128"
+            style="-webkit-app-region:no-drag;width:100%;background:var(--bg-raised);border:1px solid var(--divider);color:var(--text);font-size:12px;padding:7px 10px;border-radius:8px;outline:none;box-sizing:border-box;margin-bottom:8px;" />
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="pill-btn" id="owner-notif-send-btn" style="flex:1;">Send notification</button>
+            <div id="owner-notif-status" style="font-size:11px;color:var(--text-dim);"></div>
+          </div>
+        </div>
       </div>
 
       <div class="dev-section">

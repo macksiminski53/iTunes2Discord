@@ -381,6 +381,34 @@ elDevDisablePasscodeBtn.addEventListener('click', () => {
   window.musicToDiscord.disableDevPasscode().then(() => refreshDevPanel());
 });
 
+// ---- Owner push notification ----
+document.getElementById('owner-notif-send-btn').addEventListener('click', () => {
+  const title = document.getElementById('owner-notif-title').value.trim();
+  const body = document.getElementById('owner-notif-body').value.trim();
+  const statusEl = document.getElementById('owner-notif-status');
+  const btn = document.getElementById('owner-notif-send-btn');
+  if (!title && !body) return;
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  statusEl.textContent = '';
+  window.musicToDiscord.sendOwnerNotification(title, body).then((ok) => {
+    btn.disabled = false;
+    btn.textContent = 'Send notification';
+    if (ok) {
+      statusEl.textContent = '✅ Sent';
+      document.getElementById('owner-notif-body').value = '';
+      document.getElementById('owner-notif-title').value = '';
+    } else {
+      statusEl.textContent = '❌ Failed';
+    }
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+  });
+});
+
+document.getElementById('owner-notif-body').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('owner-notif-send-btn').click();
+});
+
 elDevDeleteByNameBtn.addEventListener('click', () => {
   const name = elDevDeleteInput.value.trim();
   if (!name) return;

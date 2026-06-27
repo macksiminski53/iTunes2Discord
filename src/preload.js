@@ -41,4 +41,5 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   getOwnerMode: () => ipcRenderer.invoke('get-owner-mode'),
   disableDevPasscode: () => ipcRenderer.invoke('disable-dev-passcode'),
   getDevPasscodeStatus: () => ipcRenderer.invoke('get-dev-passcode-status'),
+  sendOwnerNotification: (title, body) => ipcRenderer.invoke('send-owner-notification', { title, body }),
 });
