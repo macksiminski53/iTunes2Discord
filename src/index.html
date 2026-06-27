@@ -1061,6 +1061,68 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  /* ---- Background customizer ---- */
+  .bg-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .bg-preset {
+    -webkit-app-region: no-drag;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: border-color 0.15s, transform 0.1s;
+  }
+  .bg-preset:hover { transform: scale(1.1); }
+  .bg-preset.active { border-color: var(--text); }
+  .bg-custom-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 6px;
+  }
+  #bg-custom-input {
+    -webkit-app-region: no-drag;
+    flex: 1;
+    background: var(--bg-raised);
+    border: 1px solid var(--divider);
+    color: var(--text);
+    font-size: 12px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    outline: none;
+  }
+  #bg-custom-input:focus { border-color: var(--indigo); }
+  #bg-image-btn {
+    -webkit-app-region: no-drag;
+    background: var(--bg-raised);
+    border: 1px solid var(--divider);
+    color: var(--text);
+    font-size: 12px;
+    padding: 7px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  #bg-image-btn:hover { border-color: var(--indigo); }
+  #bg-reset-btn {
+    -webkit-app-region: no-drag;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 11px;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+    margin-top: 4px;
+    display: block;
+  }
 </style>
 </head>
 <body>
@@ -1273,6 +1335,18 @@
       </div>
       <div class="toggle on" id="toggle-sync" role="switch" aria-checked="true" tabindex="0"></div>
     </div>
+    <div class="row" style="flex-direction: column; align-items: flex-start; gap: 10px;">
+      <div>
+        <div class="row-label">Background</div>
+        <div class="row-sub">Color, gradient, or image</div>
+      </div>
+      <div class="bg-presets" id="bg-presets"></div>
+      <div class="bg-custom-row">
+        <input id="bg-custom-input" type="text" placeholder="#0F0F14 or css gradient…" maxlength="200" autocomplete="off" />
+        <button id="bg-image-btn">📁 Image</button>
+      </div>
+      <button id="bg-reset-btn">Reset to default</button>
+    </div>
     <div class="row">
       <div>
         <div class="row-label">App version</div>
@@ -1289,6 +1363,7 @@
     </div>
   </div>
 
+  <input type="file" id="bg-file-input" accept="image/*" style="display:none;" />
   <script src="./renderer.js"></script>
 </body>
 </html>

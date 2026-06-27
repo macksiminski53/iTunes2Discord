@@ -1,6 +1,6 @@
 {
   "name": "musictodiscord",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Shows your Apple Music or iTunes now-playing track as Discord Rich Presence",
   "main": "src/main.js",
   "author": "Mak Siminski",

@@ -53,6 +53,13 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   devGetState: () => ipcRenderer.invoke('dev-get-state'),
   devGetRecentErrors: () => ipcRenderer.invoke('dev-get-recent-errors'),
 
+  // Settings
+  getSettings: () => ipcRenderer.invoke('get-settings'),
+  setSetting: (key, value) => ipcRenderer.invoke('set-setting', key, value),
+  onSettingChanged: (callback) => {
+    ipcRenderer.on('setting-changed', (_event, data) => callback(data));
+  },
+
   // Owner mode
   getOwnerMode: () => ipcRenderer.invoke('get-owner-mode'),
   disableDevPasscode: () => ipcRenderer.invoke('disable-dev-passcode'),

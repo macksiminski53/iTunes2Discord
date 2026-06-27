@@ -857,3 +857,110 @@ async function loadRecommendations() {
     </div>
   `).join('');
 }
+
+// ---- Background customizer ----
+const BG_PRESETS = [
+  { label: 'Default dark',   value: '#0F0F14' },
+  { label: 'Deep navy',      value: '#0a0e1a' },
+  { label: 'Dark green',     value: '#0a1a0f' },
+  { label: 'Dark purple',    value: '#150a1a' },
+  { label: 'Dark red',       value: '#1a0a0a' },
+  { label: 'Indigo gradient',value: 'linear-gradient(135deg, #0f0f14 0%, #1a1428 100%)' },
+  { label: 'Ocean',          value: 'linear-gradient(135deg, #0a0e1a 0%, #0a1a2a 100%)' },
+  { label: 'Midnight',       value: 'linear-gradient(160deg, #0d0d0d 0%, #1a1a2e 100%)' },
+  { label: 'Sunset',         value: 'linear-gradient(135deg, #1a0a0a 0%, #1a0a18 100%)' },
+  { label: 'Forest',         value: 'linear-gradient(135deg, #0a1a0f 0%, #0d1a1a 100%)' },
+];
+
+const DEFAULT_BG = '#0F0F14';
+let currentBg = DEFAULT_BG;
+
+function applyBackground(value) {
+  if (!value) value = DEFAULT_BG;
+  currentBg = value;
+  // If it looks like a URL or data URI, use as background-image
+  if (value.startsWith('url(') || value.startsWith('data:') || /\.(png|jpg|jpeg|gif|webp)$/i.test(value)) {
+    document.body.style.background = `url("${value.replace(/^url\(["']?|["']?\)$/g, '')}") center/cover no-repeat fixed`;
+  } else {
+    document.body.style.background = value;
+  }
+  // Update active state on presets
+  document.querySelectorAll('.bg-preset').forEach(el => {
+    el.classList.toggle('active', el.dataset.value === value);
+  });
+  // Update input field
+  const input = document.getElementById('bg-custom-input');
+  if (input && !value.startsWith('data:')) input.value = value === DEFAULT_BG ? '' : value;
+}
+
+function saveBg(value) {
+  applyBackground(value);
+  window.musicToDiscord.setSetting('background', value);
+}
+
+// Build preset swatches
+function buildPresets() {
+  const container = document.getElementById('bg-presets');
+  if (!container) return;
+  container.innerHTML = BG_PRESETS.map(p => {
+    const isGradient = p.value.includes('gradient');
+    const style = isGradient ? `background: ${p.value}` : `background: ${p.value}`;
+    return `<div class="bg-preset" data-value="${p.value}" style="${style}" title="${p.label}"></div>`;
+  }).join('');
+
+  container.querySelectorAll('.bg-preset').forEach(el => {
+    el.addEventListener('click', () => saveBg(el.dataset.value));
+  });
+}
+
+buildPresets();
+
+// Custom input
+const bgInput = document.getElementById('bg-custom-input');
+if (bgInput) {
+  bgInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const val = bgInput.value.trim();
+      if (val) saveBg(val);
+    }
+  });
+  bgInput.addEventListener('blur', () => {
+    const val = bgInput.value.trim();
+    if (val) saveBg(val);
+  });
+}
+
+// Image file picker
+const bgImageBtn = document.getElementById('bg-image-btn');
+const bgFileInput = document.getElementById('bg-file-input');
+if (bgImageBtn && bgFileInput) {
+  bgImageBtn.addEventListener('click', () => bgFileInput.click());
+  bgFileInput.addEventListener('change', () => {
+    const file = bgFileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => saveBg(e.target.result);
+    reader.readAsDataURL(file);
+  });
+}
+
+// Reset button
+const bgResetBtn = document.getElementById('bg-reset-btn');
+if (bgResetBtn) {
+  bgResetBtn.addEventListener('click', () => {
+    if (bgInput) bgInput.value = '';
+    saveBg(DEFAULT_BG);
+  });
+}
+
+// Load saved background on startup
+window.musicToDiscord.getSettings().then(settings => {
+  if (settings && settings.background) {
+    applyBackground(settings.background);
+  }
+});
+
+// Live updates from other windows/instances
+window.musicToDiscord.onSettingChanged(({ key, value }) => {
+  if (key === 'background') applyBackground(value);
+});

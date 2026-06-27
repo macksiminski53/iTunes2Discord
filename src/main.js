@@ -79,7 +79,41 @@ function runApp() {
   // updates often enough to feel "live" without writing constantly.
   const LEADERBOARD_SYNC_INTERVAL_MS = 60000;
 
-  // ---- Local play history ----
+  // ---- App settings (background, etc.) ----
+  const settingsFile = path.join(app.getPath('userData'), 'settings.json');
+
+  function loadSettings() {
+    try {
+      if (fs.existsSync(settingsFile)) {
+        return JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+      }
+    } catch (e) {
+      log.warn('Failed to load settings:', e.message);
+    }
+    return {};
+  }
+
+  function saveSettings(settings) {
+    try {
+      fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8');
+    } catch (e) {
+      log.warn('Failed to save settings:', e.message);
+    }
+  }
+
+  let appSettings = loadSettings();
+
+  ipcMain.handle('get-settings', () => appSettings);
+
+  ipcMain.handle('set-setting', (_event, key, value) => {
+    appSettings[key] = value;
+    saveSettings(appSettings);
+    // Push to renderer so it can apply immediately
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('setting-changed', { key, value });
+    }
+    return true;
+  });
   // Saved to disk at %APPDATA%/musictodiscord/play-history.json
   // Each entry: { name, artist, album, timestamp (ms), duration (s) }
   // Kept separate from Firestore -- this is purely local, richer data
@@ -847,13 +881,11 @@ function runApp() {
     mainWindow = new BrowserWindow({
       width: 420,
       height: 680,
-      minWidth: 360,
-      minHeight: 520,
-      maxWidth: 640,
-      maxHeight: 900,
+      minWidth: 320,
+      minHeight: 400,
       resizable: true,
-      maximizable: false,
-      fullscreenable: false,
+      maximizable: true,
+      fullscreenable: true,
       backgroundColor: '#0F0F14',
       title: APP_NAME,
       frame: false,
