@@ -1123,6 +1123,281 @@
     margin-top: 4px;
     display: block;
   }
+
+  /* ================================================================
+     WIDE / DESKTOP LAYOUT MODE
+     body.wide-mode reorganizes the entire app into a landscape layout:
+     - Top bar: album art + track info + timer/progress
+     - Left sidebar: leaderboard always visible
+     - Main content: tabbed area for everything else
+     ================================================================ */
+
+  body.wide-mode {
+    display: grid;
+    grid-template-rows: 32px auto 1fr;
+    grid-template-columns: 220px 1fr;
+    grid-template-areas:
+      "drag   drag"
+      "banner banner"
+      "sidebar main";
+    overflow: hidden;
+    min-width: 640px;
+    min-height: 480px;
+  }
+
+  /* Drag region spans full width */
+  body.wide-mode #drag-region { grid-area: drag; }
+  body.wide-mode #update-banner { grid-area: banner; }
+
+  /* Sidebar — always-visible leaderboard */
+  body.wide-mode #wide-sidebar {
+    grid-area: sidebar;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--divider);
+    overflow: hidden;
+  }
+
+  /* Main content area */
+  body.wide-mode #wide-main {
+    grid-area: main;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  /* Hide narrow-mode elements in wide mode */
+  body.wide-mode #tabs { display: none; }
+  body.wide-mode #view-leaderboard { display: none; }
+  body.wide-mode .divider { display: none; }
+  body.wide-mode #settings { display: none; }
+
+  /* Hide wide-mode elements in narrow mode */
+  #wide-sidebar { display: none; }
+  #wide-main { display: none; }
+  #wide-now-playing-bar { display: none; }
+  #wide-tabs { display: none; }
+
+  /* Show wide-mode elements only in wide mode */
+  body.wide-mode #wide-sidebar { display: flex; }
+  body.wide-mode #wide-main { display: flex; }
+
+  /* Wide now-playing top bar */
+  #wide-now-playing-bar {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    border-bottom: 1px solid var(--divider);
+    background: linear-gradient(135deg, rgba(88,101,242,0.12), transparent 60%);
+    flex-shrink: 0;
+  }
+  body.wide-mode #wide-now-playing-bar { display: flex; }
+
+  #wide-art {
+    width: 52px;
+    height: 52px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: linear-gradient(135deg, var(--indigo), var(--magenta));
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+  }
+  #wide-art img { width: 100%; height: 100%; object-fit: cover; display: none; }
+
+  #wide-track-info { flex: 1; min-width: 0; }
+  #wide-track-name {
+    font-size: 15px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #wide-track-artist {
+    font-size: 12px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  #wide-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 180px;
+    flex-shrink: 0;
+  }
+  #wide-groove {
+    position: relative;
+    height: 14px;
+    display: flex;
+    align-items: center;
+  }
+  #wide-groove-track {
+    position: absolute;
+    left: 0; right: 0;
+    height: 3px;
+    border-radius: 3px;
+    background: var(--divider);
+  }
+  #wide-groove-fill {
+    position: absolute;
+    left: 0;
+    height: 3px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--indigo), var(--sky));
+    width: 0%;
+    transition: width 0.3s linear;
+  }
+  #wide-groove-needle {
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--text);
+    left: 0%;
+    transition: left 0.3s linear;
+  }
+  #wide-time-row {
+    display: flex;
+    justify-content: space-between;
+    font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+
+  #wide-timer {
+    font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+    min-width: 60px;
+    text-align: right;
+  }
+  #wide-timer.paused { color: var(--text-dim); }
+
+  #wide-status {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+
+  /* Wide sidebar leaderboard */
+  #wide-sidebar-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 12px 14px 6px;
+    flex-shrink: 0;
+  }
+  #wide-leaderboard-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 8px 8px;
+  }
+  #wide-leaderboard-empty {
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 12px 14px;
+    display: none;
+  }
+  #wide-leaderboard-error {
+    font-size: 12px;
+    color: var(--bad);
+    padding: 12px 14px;
+    display: none;
+  }
+  .wide-lb-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 6px;
+    border-radius: 7px;
+    font-size: 12px;
+  }
+  .wide-lb-row:hover { background: var(--bg-raised); }
+  .wide-lb-rank {
+    width: 18px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .wide-lb-rank.gold { color: #f5c542; }
+  .wide-lb-rank.silver { color: #b0b8c8; }
+  .wide-lb-rank.bronze { color: #cd7f32; }
+  .wide-lb-name {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 500;
+  }
+  .wide-lb-time {
+    font-size: 10px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+    font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
+  }
+
+  /* Wide main tabs */
+  #wide-tabs {
+    display: none;
+    border-bottom: 1px solid var(--divider);
+    padding: 0 12px;
+    flex-shrink: 0;
+  }
+  body.wide-mode #wide-tabs { display: flex; }
+
+  /* Wide content area — shows the same view panels */
+  #wide-content {
+    flex: 1;
+    overflow-y: auto;
+    position: relative;
+  }
+
+  /* In wide mode, views that belong in the main area are shown via wide-tab system */
+  body.wide-mode #view-now-playing { display: none; }
+  body.wide-mode #view-wrapped,
+  body.wide-mode #view-share,
+  body.wide-mode #view-recs,
+  body.wide-mode #view-dev { display: none; }
+
+  /* Wide mode uses #wide-content to show the active panel */
+  body.wide-mode.wtab-nowplaying #wide-now-playing-bar { background: linear-gradient(135deg, rgba(88,101,242,0.2), transparent 60%); }
+
+  /* Settings row in wide mode - accessible via gear icon */
+  #wide-settings-btn {
+    -webkit-app-region: no-drag;
+    width: 28px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-radius: 6px;
+    font-size: 14px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  body.wide-mode #wide-settings-btn { display: flex; }
+  #wide-settings-btn:hover { background: var(--bg-raised); color: var(--text); }
+
+  body.wide-mode #view-wrapped { position: relative; }
 </style>
 </head>
 <body>
@@ -1138,6 +1413,7 @@
 
   <div id="drag-region">
     <span class="app-label">MUSIC TO DISCORD</span>
+    <button class="win-btn" id="btn-layout" title="Toggle layout" aria-label="Toggle layout">⊞</button>
     <button class="win-btn" id="btn-min" title="Minimize to tray" aria-label="Minimize to tray">&#8211;</button>
     <button class="win-btn" id="btn-close" title="Close" aria-label="Close window">&#10005;</button>
   </div>
@@ -1145,6 +1421,54 @@
   <div id="update-banner">
     <div id="update-banner-text">⬇ Downloading update…</div>
     <button id="update-banner-btn" disabled>Install &amp; Restart</button>
+  </div>
+
+  <!-- Wide mode: now-playing top bar (replaces hero/timer/groove) -->
+  <div id="wide-now-playing-bar">
+    <div id="wide-art">
+      <span id="wide-art-fallback">♫</span>
+      <img id="wide-art-img" alt="" />
+    </div>
+    <div id="wide-track-info">
+      <div id="wide-track-name">Nothing playing</div>
+      <div id="wide-track-artist">Open Apple Music and press play</div>
+    </div>
+    <div id="wide-progress">
+      <div id="wide-groove">
+        <div id="wide-groove-track"></div>
+        <div id="wide-groove-fill"></div>
+        <div id="wide-groove-needle"></div>
+      </div>
+      <div id="wide-time-row">
+        <span id="wide-time-elapsed">0:00</span>
+        <span id="wide-time-remaining">−0:00</span>
+      </div>
+    </div>
+    <div id="wide-timer" class="paused">0:00</div>
+    <div id="wide-status">
+      <span id="wide-status-dot" class="status-dot"></span>
+    </div>
+    <button id="wide-settings-btn" title="Settings">⚙</button>
+  </div>
+
+  <!-- Wide mode: sidebar always shows leaderboard -->
+  <div id="wide-sidebar">
+    <div id="wide-sidebar-title">🏆 Leaderboard</div>
+    <div id="wide-leaderboard-list"></div>
+    <div id="wide-leaderboard-empty">No entries yet this month.</div>
+    <div id="wide-leaderboard-error">Couldn't load leaderboard.</div>
+  </div>
+
+  <!-- Wide mode: main content tabs + panels -->
+  <div id="wide-main">
+    <div id="wide-tabs">
+      <button class="tab-btn active" id="wtab-btn-wrapped">Wrapped</button>
+      <button class="tab-btn" id="wtab-btn-recs">For You</button>
+      <button class="tab-btn" id="wtab-btn-share">Share</button>
+      <button class="tab-btn" id="wtab-btn-settings">Settings</button>
+      <button class="tab-btn" id="wtab-btn-dev" style="display:none;">Dev</button>
+    </div>
+    <div id="wide-content"></div>
   </div>
 
   <div id="tabs">
