@@ -436,10 +436,52 @@ function runApp() {
     return getCurrentTrackSMTC();
   }
 
+  function getCurrentTrackMac() {
+    return new Promise((resolve) => {
+      const scriptPath = getScriptPath('get-track.applescript');
+      const osa = spawn('osascript', [scriptPath]);
+
+      let stdout = '';
+      let stderr = '';
+
+      osa.stdout.on('data', (d) => (stdout += d.toString()));
+      osa.stderr.on('data', (d) => (stderr += d.toString()));
+
+      osa.on('close', () => {
+        if (stderr) log.warn('osascript stderr:', stderr.trim());
+        const trimmed = stdout.trim();
+        if (!trimmed || trimmed === 'not_running') return resolve({ state: 'not_running' });
+        if (trimmed === 'stopped') return resolve({ state: 'stopped' });
+
+        const parts = trimmed.split('<|>');
+        if (parts.length !== 6) {
+          log.warn('Unexpected AppleScript output:', trimmed);
+          return resolve({ state: 'not_running' });
+        }
+        const [state, name, artist, album, durationStr, positionStr] = parts;
+        resolve({
+          state,
+          name,
+          artist,
+          album,
+          duration: parseFloat(durationStr) || 0,
+          position: parseFloat(positionStr) || 0,
+          artworkPath: null, // Mac artwork support coming in a future version
+        });
+      });
+
+      osa.on('error', (err) => {
+        log.error('Failed to spawn osascript:', err.message);
+        resolve({ state: 'not_running' });
+      });
+    });
+  }
+
   function getCurrentTrack() {
     if (process.platform === 'win32') return getCurrentTrackWindows();
+    if (process.platform === 'darwin') return getCurrentTrackMac();
     if (!warnedUnsupportedPlatform) {
-      log.warn(`${APP_NAME} only supports Windows currently.`);
+      log.warn(`${APP_NAME} doesn't support platform "${process.platform}" yet.`);
       warnedUnsupportedPlatform = true;
     }
     return Promise.resolve({ state: 'not_running' });
