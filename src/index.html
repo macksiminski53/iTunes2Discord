@@ -1045,6 +1045,17 @@
   body.tab-recs #view-recs { display: flex; }
   body.tab-recs #view-now-playing,
   body.tab-recs #view-leaderboard { display: none; }
+
+  /* ---- Settings view ---- */
+  #view-settings {
+    display: none;
+    flex-direction: column;
+    overflow-y: auto;
+    flex: 1;
+  }
+  body.tab-settings #view-settings { display: flex; }
+  body.tab-settings #view-now-playing,
+  body.tab-settings #view-leaderboard { display: none; }
   .recs-empty {
     text-align: center;
     color: var(--text-dim);
@@ -1179,6 +1190,7 @@
     <button class="tab-btn" id="tab-btn-wrapped">Wrapped</button>
     <button class="tab-btn" id="tab-btn-share">Share</button>
     <button class="tab-btn" id="tab-btn-recs">For You</button>
+    <button class="tab-btn" id="tab-btn-settings">Settings</button>
     <button class="tab-btn" id="tab-btn-dev" style="display: none;">Dev</button>
   </div>
 
@@ -1336,56 +1348,56 @@
     </div>
   </div>
 
-  <div class="divider"></div>
-
-  <div id="settings">
-    <div class="row">
-      <div>
-        <div class="row-label">Leaderboard name</div>
-        <div class="row-sub" id="username-sub">Not set</div>
-        <button class="text-link-btn danger-text" id="btn-remove-username">Remove username entirely</button>
+  <div id="view-settings">
+    <div id="settings">
+      <div class="row">
+        <div>
+          <div class="row-label">Leaderboard name</div>
+          <div class="row-sub" id="username-sub">Not set</div>
+          <button class="text-link-btn danger-text" id="btn-remove-username">Remove username entirely</button>
+        </div>
+        <button class="pill-btn" id="btn-change-username">Set name</button>
       </div>
-      <button class="pill-btn" id="btn-change-username">Set name</button>
-    </div>
-    <div class="row" id="row-delete-stats">
-      <div>
-        <div class="row-label">My leaderboard stats</div>
-        <div class="row-sub">Resets this month's listening time to 0</div>
+      <div class="row" id="row-delete-stats">
+        <div>
+          <div class="row-label">My leaderboard stats</div>
+          <div class="row-sub">Resets this month's listening time to 0</div>
+        </div>
+        <button class="pill-btn danger" id="btn-delete-stats">Delete</button>
       </div>
-      <button class="pill-btn danger" id="btn-delete-stats">Delete</button>
-    </div>
-    <div class="row">
-      <div>
-        <div class="row-label">Sync with Discord</div>
-        <div class="row-sub" id="sync-sub">Updates your status while your music plays</div>
+      <div class="row">
+        <div>
+          <div class="row-label">Sync with Discord</div>
+          <div class="row-sub" id="sync-sub">Updates your status while your music plays</div>
+        </div>
+        <div class="toggle on" id="toggle-sync" role="switch" aria-checked="true" tabindex="0"></div>
       </div>
-      <div class="toggle on" id="toggle-sync" role="switch" aria-checked="true" tabindex="0"></div>
-    </div>
-    <div class="row" style="flex-direction: column; align-items: flex-start; gap: 10px;">
-      <div>
-        <div class="row-label">Background</div>
-        <div class="row-sub">Color, gradient, or image</div>
+      <div class="row" style="flex-direction: column; align-items: flex-start; gap: 10px;">
+        <div>
+          <div class="row-label">Background</div>
+          <div class="row-sub">Color, gradient, or image</div>
+        </div>
+        <div class="bg-presets" id="bg-presets"></div>
+        <div class="bg-custom-row">
+          <input id="bg-custom-input" type="text" placeholder="#0F0F14 or css gradient…" maxlength="200" autocomplete="off" />
+          <button id="bg-image-btn">📁 Image</button>
+        </div>
+        <button id="bg-reset-btn">Reset to default</button>
       </div>
-      <div class="bg-presets" id="bg-presets"></div>
-      <div class="bg-custom-row">
-        <input id="bg-custom-input" type="text" placeholder="#0F0F14 or css gradient…" maxlength="200" autocomplete="off" />
-        <button id="bg-image-btn">📁 Image</button>
+      <div class="row">
+        <div>
+          <div class="row-label">App version</div>
+          <div class="row-sub" id="version-sub">v1.2.0</div>
+        </div>
+        <button class="pill-btn" id="btn-update">Check for updates</button>
       </div>
-      <button id="bg-reset-btn">Reset to default</button>
-    </div>
-    <div class="row">
-      <div>
-        <div class="row-label">App version</div>
-        <div class="row-sub" id="version-sub">v1.2.0</div>
+      <div class="row">
+        <div>
+          <div class="row-label">Quit MusicToDiscord</div>
+          <div class="row-sub">Stops syncing and closes the app</div>
+        </div>
+        <button class="pill-btn danger" id="btn-quit">Quit</button>
       </div>
-      <button class="pill-btn" id="btn-update">Check for updates</button>
-    </div>
-    <div class="row">
-      <div>
-        <div class="row-label">Quit MusicToDiscord</div>
-        <div class="row-sub">Stops syncing and closes the app</div>
-      </div>
-      <button class="pill-btn danger" id="btn-quit">Quit</button>
     </div>
   </div>
 

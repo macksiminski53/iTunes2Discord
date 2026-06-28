@@ -23,6 +23,7 @@ const elTabBtnLeaderboard = document.getElementById('tab-btn-leaderboard');
 const elTabBtnWrapped = document.getElementById('tab-btn-wrapped');
 const elTabBtnShare = document.getElementById('tab-btn-share');
 const elTabBtnRecs = document.getElementById('tab-btn-recs');
+const elTabBtnSettings = document.getElementById('tab-btn-settings');
 const elTabBtnDev = document.getElementById('tab-btn-dev');
 const elUpdateBanner = document.getElementById('update-banner');
 const elUpdateBannerText = document.getElementById('update-banner-text');
@@ -261,12 +262,14 @@ function showTab(tab) {
   document.body.classList.toggle('tab-wrapped', tab === 'wrapped');
   document.body.classList.toggle('tab-share', tab === 'share');
   document.body.classList.toggle('tab-recs', tab === 'recs');
+  document.body.classList.toggle('tab-settings', tab === 'settings');
   elTabBtnNowPlaying.classList.toggle('active', tab === 'now-playing');
   elTabBtnLeaderboard.classList.toggle('active', tab === 'leaderboard');
   elTabBtnDev.classList.toggle('active', tab === 'dev');
   elTabBtnWrapped.classList.toggle('active', tab === 'wrapped');
   elTabBtnShare.classList.toggle('active', tab === 'share');
   elTabBtnRecs.classList.toggle('active', tab === 'recs');
+  elTabBtnSettings.classList.toggle('active', tab === 'settings');
 
   if (tab === 'leaderboard') {
     loadLeaderboard();
@@ -299,6 +302,7 @@ elTabBtnDev.addEventListener('click', () => showTab('dev'));
 elTabBtnWrapped.addEventListener('click', () => showTab('wrapped'));
 elTabBtnShare.addEventListener('click', () => showTab('share'));
 elTabBtnRecs.addEventListener('click', () => showTab('recs'));
+elTabBtnSettings.addEventListener('click', () => showTab('settings'));
 
 // ---- Dev mode ----
 function formatDevValue(val) {
