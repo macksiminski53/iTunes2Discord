@@ -19,10 +19,7 @@
     "productName": "MusicToDiscord",
     "compression": "maximum",
     "win": {
-      "target": {
-        "target": "nsis",
-        "arch": ["x64"]
-      },
+      "target": "nsis",
       "icon": "assets/icon-source.png"
     },
     "nsis": {
@@ -30,7 +27,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "compression": "lzma"
+      "disableWelcomePage": true
     },
     "publish": {
       "provider": "github",

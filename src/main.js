@@ -617,78 +617,64 @@ function runApp() {
   // Imgur anonymously (no account needed) and use the resulting URL.
   const artworkUrlCache = new Map();
 
-  function uploadArtworkToImgur(filePath) {
+  function uploadArtworkToCatbox(filePath) {
     return new Promise((resolve) => {
-      let imageData;
+      let imageBuffer;
       try {
-        imageData = fs.readFileSync(filePath, { encoding: 'base64' });
+        imageBuffer = fs.readFileSync(filePath);
       } catch (e) {
         log.warn('Could not read artwork file:', e.message);
         return resolve(null);
       }
 
-      // Hash the actual image bytes for the cache key -- the artwork file on
-      // disk gets overwritten in place for every new track, so caching by
-      // file PATH would incorrectly reuse a stale URL from a previous song.
-      const contentHash = crypto.createHash('md5').update(imageData).digest('hex');
+      const contentHash = crypto.createHash('md5').update(imageBuffer).digest('hex');
       if (artworkUrlCache.has(contentHash)) {
         return resolve(artworkUrlCache.get(contentHash));
       }
 
-      const postData = `image=${encodeURIComponent(imageData)}&type=base64`;
+      const boundary = `----MusicToDiscordBoundary${Date.now()}`;
+      const partHeader = Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="fileToUpload"; filename="artwork.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`
+      );
+      const reqTypeField = Buffer.from(
+        `\r\n--${boundary}\r\nContent-Disposition: form-data; name="reqtype"\r\n\r\nfileupload\r\n--${boundary}--\r\n`
+      );
+      const body = Buffer.concat([partHeader, imageBuffer, reqTypeField]);
 
       const req = https.request(
         {
-          hostname: 'api.imgur.com',
-          path: '/3/image',
+          hostname: 'catbox.moe',
+          path: '/user/api.php',
           method: 'POST',
           headers: {
-            // Imgur's public anonymous-upload Client ID -- meant to be
-            // embedded in client apps, not a secret.
-            Authorization: 'Client-ID 546c25a59c58ad7',
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Content-Length': Buffer.byteLength(postData),
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+            'Content-Length': body.length,
           },
-          timeout: 10000,
+          timeout: 15000,
         },
         (res) => {
-          let body = '';
-          res.on('data', (chunk) => (body += chunk));
+          let responseText = '';
+          res.on('data', (chunk) => (responseText += chunk));
           res.on('end', () => {
-            try {
-              const json = JSON.parse(body);
-              if (json.success && json.data && json.data.link) {
-                const url = json.data.link;
-                artworkUrlCache.set(contentHash, url);
-                // Keep the cache from growing forever across a long session.
-                if (artworkUrlCache.size > 50) {
-                  const firstKey = artworkUrlCache.keys().next().value;
-                  artworkUrlCache.delete(firstKey);
-                }
-                resolve(url);
-              } else {
-                log.warn('Imgur upload did not return a link:', body.slice(0, 200));
-                resolve(null);
+            const url = responseText.trim();
+            if (url.startsWith('https://files.catbox.moe/')) {
+              artworkUrlCache.set(contentHash, url);
+              if (artworkUrlCache.size > 50) {
+                artworkUrlCache.delete(artworkUrlCache.keys().next().value);
               }
-            } catch (e) {
-              log.warn('Failed to parse Imgur response:', e.message);
+              log.info('Artwork uploaded to Catbox:', url);
+              resolve(url);
+            } else {
+              log.warn('Catbox upload failed:', responseText.slice(0, 200));
               resolve(null);
             }
           });
         }
       );
 
-      req.on('error', (e) => {
-        log.warn('Imgur upload request failed:', e.message);
-        resolve(null);
-      });
-      req.on('timeout', () => {
-        req.destroy();
-        log.warn('Imgur upload timed out');
-        resolve(null);
-      });
-
-      req.write(postData);
+      req.on('error', (e) => { log.warn('Catbox upload failed:', e.message); resolve(null); });
+      req.on('timeout', () => { req.destroy(); log.warn('Catbox upload timed out'); resolve(null); });
+      req.write(body);
       req.end();
     });
   }
@@ -715,7 +701,7 @@ function runApp() {
     let largeImageURL = undefined;
 
     if (track.artworkPath) {
-      const uploadedUrl = await uploadArtworkToImgur(track.artworkPath);
+      const uploadedUrl = await uploadArtworkToCatbox(track.artworkPath);
       if (uploadedUrl) {
         largeImageKey = undefined;
         largeImageURL = uploadedUrl;
