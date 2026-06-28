@@ -693,33 +693,37 @@ function runApp() {
     const startTimestamp = Math.floor(now - track.position * 1000);
     const endTimestamp = Math.floor(now + (track.duration - track.position) * 1000);
 
-    // Try to use the real album art (uploaded to Imgur so Discord can fetch
-    // it); fall back to the app's static logo if there's no artwork or the
-    // upload fails for any reason.
-    let largeImage = 'app_logo';
+    // Try to use real album art from Imgur. Discord RPC accepts external
+    // image URLs via `largeImageURL` (not `largeImageKey`). Fall back to
+    // the static `app_logo` asset key if no artwork or upload fails.
+    let largeImageKey = 'app_logo';
+    let largeImageURL = undefined;
+
     if (track.artworkPath) {
       const uploadedUrl = await uploadArtworkToImgur(track.artworkPath);
       if (uploadedUrl) {
-        largeImage = uploadedUrl;
+        largeImageKey = undefined;
+        largeImageURL = uploadedUrl;
       }
     }
 
     const activity = {
-      details: track.name || 'Unknown track',
-      state: track.artist ? `by ${track.artist}` : 'Unknown artist',
-      largeImageKey: largeImage,
-      largeImageText: track.album || '',
+      details: (track.name || 'Unknown track').slice(0, 128),
+      state: (track.artist ? `by ${track.artist}` : 'Unknown artist').slice(0, 128),
+      largeImageText: (track.album || '').slice(0, 128),
       instance: false,
     };
+
+    // Only set one of largeImageKey OR largeImageURL — not both
+    if (largeImageURL) {
+      activity.largeImageURL = largeImageURL;
+    } else {
+      activity.largeImageKey = largeImageKey;
+    }
 
     if (track.state === 'playing') {
       activity.startTimestamp = startTimestamp;
       activity.endTimestamp = endTimestamp;
-      activity.smallImageKey = 'play_icon';
-      activity.smallImageText = 'Playing';
-    } else {
-      activity.smallImageKey = 'pause_icon';
-      activity.smallImageText = 'Paused';
     }
 
     try {
@@ -1066,6 +1070,14 @@ function runApp() {
     // below rather than unlocking anything.
     const devPasscodeCurrentlyDisabled = devPasscodeDisabledUntil > Date.now();
     if (trimmed === DEV_MODE_PASSCODE && !devPasscodeCurrentlyDisabled) {
+      // Version gate — dev mode only works on v1.6.6 and above.
+      // This prevents stale or old installs from ever unlocking it.
+      const [maj, min, pat] = app.getVersion().split('.').map(Number);
+      const versionOk = maj > 1 || (maj === 1 && min > 6) || (maj === 1 && min === 6 && pat >= 6);
+      if (!versionOk) {
+        log.warn(`Dev mode passcode rejected — version ${app.getVersion()} is below minimum 1.6.6`);
+        return { ok: false, reason: 'invalid' }; // looks like a wrong username, reveals nothing
+      }
       devModeEnabled = true;
       saveDevMode(true);
       log.info('Dev mode unlocked');
@@ -1642,7 +1654,7 @@ function runApp() {
     // safe to do synchronously before anything else starts.
     username = loadUsername();
     deviceId = getOrCreateDeviceId();
-    devModeEnabled = loadDevMode();
+    devModeEnabled = false; // always starts disabled — must re-enter passcode each session
     ownerModeEnabled = loadOwnerMode();
     devPasscodeDisabledUntil = loadDevPasscodeDisabledUntil();
     if (devPasscodeDisabledUntil > Date.now()) {

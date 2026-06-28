@@ -186,8 +186,12 @@ function render(state) {
     elBtnDeleteStats.disabled = !currentUsername;
   }
 
-  if (state.devMode) {
-    elTabBtnDev.style.display = '';
+  if (typeof state.devMode !== 'undefined') {
+    elTabBtnDev.style.display = state.devMode ? '' : 'none';
+    // If dev tab is active but dev mode got disabled, switch back to now playing
+    if (!state.devMode && document.body.classList.contains('tab-dev')) {
+      showTab('now-playing');
+    }
   }
 
   if (typeof state.ownerMode !== 'undefined') {
