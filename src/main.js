@@ -931,10 +931,13 @@ function runApp() {
       saveSettings(appSettings);
     });
 
-    // Spec: closing the window just hides it, app keeps running in tray.
+    // Spec: closing the window just hides it, app keeps running in tray —
+    // UNLESS app.isQuitting is set (e.g. from the Quit button or X button).
     mainWindow.on('close', (e) => {
-      e.preventDefault();
-      mainWindow.hide();
+      if (!app.isQuitting) {
+        e.preventDefault();
+        mainWindow.hide();
+      }
     });
 
     // If the window is ever actually destroyed (not just hidden) — e.g. by
@@ -1024,6 +1027,7 @@ function runApp() {
 
   ipcMain.on('quit-app', () => {
     if (connected && rpc?.user) rpc.user.clearActivity().catch(() => {});
+    app.isQuitting = true;
     pushLeaderboardUpdate().finally(() => app.quit());
   });
 
@@ -1585,6 +1589,7 @@ function runApp() {
         label: 'Quit',
         click: () => {
           if (connected && rpc?.user) rpc.user.clearActivity().catch(() => {});
+          app.isQuitting = true;
           pushLeaderboardUpdate().finally(() => app.quit());
         },
       },
