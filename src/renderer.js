@@ -610,7 +610,7 @@ elBtnUpdate.addEventListener('click', () => {
 
 elBtnQuit.addEventListener('click', () => window.musicToDiscord.quitApp());
 elBtnMin.addEventListener('click', () => window.close());
-elBtnClose.addEventListener('click', () => window.close());
+elBtnClose.addEventListener('click', () => window.musicToDiscord.quitApp());
 
 // ---- Initial state + live updates ----
 window.musicToDiscord.getState().then((state) => {
