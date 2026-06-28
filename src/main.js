@@ -904,6 +904,27 @@ function runApp() {
 
     mainWindow.once('ready-to-show', () => {
       mainWindow.show();
+      // Restore saved zoom level
+      const savedZoom = appSettings.zoomFactor || 1.0;
+      mainWindow.webContents.setZoomFactor(savedZoom);
+    });
+
+    // Ctrl+= / Ctrl+- / Ctrl+0 zoom support
+    mainWindow.webContents.on('before-input-event', (_event, input) => {
+      if (!input.control) return;
+      let zoom = mainWindow.webContents.getZoomFactor();
+      if (input.key === '=' || input.key === '+') {
+        zoom = Math.min(2.0, parseFloat((zoom + 0.1).toFixed(1)));
+      } else if (input.key === '-') {
+        zoom = Math.max(0.5, parseFloat((zoom - 0.1).toFixed(1)));
+      } else if (input.key === '0') {
+        zoom = 1.0;
+      } else {
+        return;
+      }
+      mainWindow.webContents.setZoomFactor(zoom);
+      appSettings.zoomFactor = zoom;
+      saveSettings(appSettings);
     });
 
     // Spec: closing the window just hides it, app keeps running in tray.
