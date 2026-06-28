@@ -343,15 +343,26 @@ function renderDevEntries(entries) {
     return;
   }
   entries.forEach((entry) => {
+    const platformLabel = entry.platform === 'win32' ? 'Win'
+      : entry.platform === 'darwin' ? 'Mac'
+      : entry.platform || '?';
+    const versionLabel = entry.appVersion ? `v${entry.appVersion}` : '';
+    const osLabel = entry.osVersion ? entry.osVersion : '';
+    const infoLabel = [platformLabel, osLabel, versionLabel].filter(Boolean).join(' · ');
+
     const row = document.createElement('div');
     row.className = 'dev-entry-row';
     row.innerHTML = `
-      <span class="dev-entry-name"></span>
+      <div class="dev-entry-info">
+        <span class="dev-entry-name"></span>
+        <span class="dev-entry-meta"></span>
+      </div>
       <span class="dev-entry-month"></span>
       <span class="dev-entry-time"></span>
       <button class="dev-entry-delete">DEL</button>
     `;
     row.querySelector('.dev-entry-name').textContent = entry.username || 'Unknown';
+    row.querySelector('.dev-entry-meta').textContent = infoLabel;
     row.querySelector('.dev-entry-month').textContent = entry.month || '';
     row.querySelector('.dev-entry-time').textContent = formatListeningTime(entry.totalSeconds);
     row.querySelector('.dev-entry-delete').addEventListener('click', () => {

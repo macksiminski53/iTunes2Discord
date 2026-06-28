@@ -601,13 +601,26 @@
     background: var(--bg-raised);
     font-size: 12px;
   }
-  .dev-entry-name {
+  .dev-entry-info {
     flex: 1;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .dev-entry-name {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     font-weight: 600;
+  }
+  .dev-entry-meta {
+    font-size: 10px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
   }
   .dev-entry-month {
     font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;

@@ -855,6 +855,9 @@ function runApp() {
         totalSeconds: Math.round(sessionSecondsThisMonth),
         lastUpdated: new Date(),
         deviceId,
+        appVersion: app.getVersion(),
+        platform: process.platform, // 'win32' | 'darwin' | etc.
+        osVersion: require('os').release(), // e.g. "10.0.26100"
       });
       lastLeaderboardPushAt = Date.now();
       log.info(`Leaderboard sync: ${username} -> ${Math.round(sessionSecondsThisMonth)}s this month`);
