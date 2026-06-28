@@ -44,6 +44,10 @@ function runApp() {
     deleteLeaderboardEntry,
     getUsernameOwner,
     claimUsername,
+    banUsername,
+    unbanUsername,
+    isUsernameBanned,
+    listBannedUsernames,
   } = require('./firestore');
 
   // ---- CONFIG ----
@@ -566,6 +570,13 @@ function runApp() {
   // ---- Discord RPC ----
   async function connectDiscord() {
     if (connected) return;
+
+    // Clean up any existing rpc client before creating a new one
+    if (rpc) {
+      try { rpc.destroy(); } catch (_) {}
+      rpc = null;
+    }
+
     rpc = new DiscordRPC.Client({
       clientId: CLIENT_ID,
       transport: { type: 'ipc' },
@@ -573,6 +584,10 @@ function runApp() {
 
     rpc.on('ready', () => {
       connected = true;
+      // Reset track key so the current song gets re-pushed to Discord
+      // immediately rather than waiting for the next track change.
+      lastTrackKey = null;
+      lastDiscordPushAt = 0;
       log.info('Connected to Discord RPC');
       updateTrayMenu();
       pushStateUpdate();
@@ -839,18 +854,23 @@ function runApp() {
   // (see leaderboardSyncTimer below) rather than every poll, and also once
   // immediately after a user sets their username for the first time.
   async function pushLeaderboardUpdate() {
-    if (!username) return; // nothing to push until a name is set -- not worth logging, this is the normal pre-setup state
+    if (!username) return;
     if (!monthlyTotalLoaded) {
-      // This used to return here completely silently, with no log line at
-      // all -- which is exactly why a real bug (this early-return firing on
-      // every single periodic sync, for reasons explained on
-      // monthlyTotalLoaded below) was invisible in the logs and impossible
-      // to diagnose from a user's report alone. Logging it now so a skipped
-      // sync is at least visible, even though the fix below should mean
-      // this should only ever be hit once, briefly, right at startup.
       log.warn('Leaderboard sync skipped — still waiting on startup total fetch');
       return;
     }
+
+    // Check if this username is banned before pushing
+    try {
+      const banned = await isUsernameBanned(username);
+      if (banned) {
+        log.info(`Leaderboard sync skipped — ${username} is banned`);
+        return;
+      }
+    } catch (e) {
+      log.warn('Ban check failed, allowing push:', e.message);
+    }
+
     const docId = `${username}_${getCurrentMonthKey()}`;
     try {
       await setLeaderboardEntry(docId, {
@@ -931,13 +951,10 @@ function runApp() {
       saveSettings(appSettings);
     });
 
-    // Spec: closing the window just hides it, app keeps running in tray —
-    // UNLESS app.isQuitting is set (e.g. from the Quit button or X button).
+    // Spec: closing the window just hides it, app keeps running in tray.
     mainWindow.on('close', (e) => {
-      if (!app.isQuitting) {
-        e.preventDefault();
-        mainWindow.hide();
-      }
+      e.preventDefault();
+      mainWindow.hide();
     });
 
     // If the window is ever actually destroyed (not just hidden) — e.g. by
@@ -1027,7 +1044,6 @@ function runApp() {
 
   ipcMain.on('quit-app', () => {
     if (connected && rpc?.user) rpc.user.clearActivity().catch(() => {});
-    app.isQuitting = true;
     pushLeaderboardUpdate().finally(() => app.quit());
   });
 
@@ -1501,6 +1517,47 @@ function runApp() {
     }
   });
 
+  ipcMain.handle('dev-ban-username', async (_event, targetUsername) => {
+    if (!devModeEnabled) return false;
+    const trimmed = (targetUsername || '').trim();
+    if (!trimmed) return false;
+    try {
+      // Ban the user and also delete their current entry so it's gone immediately
+      await banUsername(trimmed);
+      await deleteLeaderboardEntry(`${trimmed}_${getCurrentMonthKey()}`).catch(() => {});
+      loadLeaderboardAfterChange();
+      log.info(`Dev mode: banned ${trimmed}`);
+      return true;
+    } catch (e) {
+      log.warn('Dev mode: failed to ban:', trimmed, e.message);
+      return false;
+    }
+  });
+
+  ipcMain.handle('dev-unban-username', async (_event, targetUsername) => {
+    if (!devModeEnabled) return false;
+    const trimmed = (targetUsername || '').trim();
+    if (!trimmed) return false;
+    try {
+      await unbanUsername(trimmed);
+      log.info(`Dev mode: unbanned ${trimmed}`);
+      return true;
+    } catch (e) {
+      log.warn('Dev mode: failed to unban:', trimmed, e.message);
+      return false;
+    }
+  });
+
+  ipcMain.handle('dev-list-banned', async () => {
+    if (!devModeEnabled) return [];
+    try {
+      return await listBannedUsernames();
+    } catch (e) {
+      log.warn('Dev mode: failed to list banned:', e.message);
+      return [];
+    }
+  });
+
   // Live internal state -- the kind of thing you'd otherwise only see by
   // reading main.js's variables in a debugger. Recomputed fresh on every
   // call rather than cached, since the renderer polls this while the dev
@@ -1589,7 +1646,6 @@ function runApp() {
         label: 'Quit',
         click: () => {
           if (connected && rpc?.user) rpc.user.clearActivity().catch(() => {});
-          app.isQuitting = true;
           pushLeaderboardUpdate().finally(() => app.quit());
         },
       },

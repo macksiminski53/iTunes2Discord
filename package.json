@@ -1,6 +1,6 @@
 {
   "name": "musictodiscord",
-  "version": "1.6.8",
+  "version": "1.7.0",
   "description": "Shows your Apple Music or iTunes now-playing track as Discord Rich Presence",
   "main": "src/main.js",
   "author": "Mak Siminski",
@@ -17,15 +17,20 @@
   "build": {
     "appId": "com.yourname.musictodiscord",
     "productName": "MusicToDiscord",
+    "compression": "maximum",
     "win": {
-      "target": "nsis",
+      "target": {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
       "icon": "assets/icon-source.png"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "compression": "lzma"
     },
     "publish": {
       "provider": "github",

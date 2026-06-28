@@ -41,6 +41,10 @@ const elDevEntriesList = document.getElementById('dev-entries-list');
 const elDevEntriesEmpty = document.getElementById('dev-entries-empty');
 const elDevDeleteInput = document.getElementById('dev-delete-input');
 const elDevDeleteByNameBtn = document.getElementById('dev-delete-by-name-btn');
+const elDevBanInput = document.getElementById('dev-ban-input');
+const elDevBanBtn = document.getElementById('dev-ban-btn');
+const elDevUnbanBtn = document.getElementById('dev-unban-btn');
+const elDevBannedList = document.getElementById('dev-banned-list');
 
 // Owner mode
 const elDevOwnerSection = document.getElementById('dev-owner-section');
@@ -390,6 +394,7 @@ function refreshDevPanel() {
   window.musicToDiscord.devGetState().then(renderDevStateGrid);
   window.musicToDiscord.devGetRecentErrors().then(renderDevErrors);
   window.musicToDiscord.devGetAllEntries().then(renderDevEntries);
+  loadBannedList();
 
   window.musicToDiscord.getOwnerMode().then((isOwner) => {
     elDevOwnerSection.style.display = isOwner ? 'block' : 'none';
@@ -452,6 +457,43 @@ elDevDeleteByNameBtn.addEventListener('click', () => {
 
 elDevDeleteInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') elDevDeleteByNameBtn.click();
+});
+
+async function loadBannedList() {
+  const banned = await window.musicToDiscord.devListBanned().catch(() => []);
+  if (!elDevBannedList) return;
+  if (!banned || banned.length === 0) {
+    elDevBannedList.textContent = 'No banned users.';
+    return;
+  }
+  elDevBannedList.textContent = `Banned: ${banned.join(', ')}`;
+}
+
+elDevBanBtn.addEventListener('click', async () => {
+  const name = elDevBanInput.value.trim();
+  if (!name) return;
+  elDevBanBtn.disabled = true;
+  const ok = await window.musicToDiscord.devBanUsername(name).catch(() => false);
+  elDevBanBtn.disabled = false;
+  if (ok) {
+    elDevBanInput.value = '';
+    refreshDevPanel();
+    loadBannedList();
+  }
+});
+
+elDevUnbanBtn.addEventListener('click', async () => {
+  const name = elDevBanInput.value.trim();
+  if (!name) return;
+  elDevUnbanBtn.disabled = true;
+  await window.musicToDiscord.devUnbanUsername(name).catch(() => {});
+  elDevUnbanBtn.disabled = false;
+  elDevBanInput.value = '';
+  loadBannedList();
+});
+
+elDevBanInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') elDevBanBtn.click();
 });
 
 // ---- Username setup overlay ----

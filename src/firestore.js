@@ -192,10 +192,54 @@ async function claimUsername(name, deviceId) {
   });
 }
 
+
+
+// ---- Ban list ----
+// A `banned` collection, one doc per banned username.
+// The app checks this before pushing leaderboard updates and silently
+// skips the push if the username is banned.
+
+async function banUsername(name) {
+  const path = `${BASE_PATH}/banned/${encodeDocId(name)}`;
+  await request('PATCH', path, {
+    fields: toFirestoreFields({ bannedAt: new Date(), name }),
+  });
+}
+
+async function unbanUsername(name) {
+  const path = `${BASE_PATH}/banned/${encodeDocId(name)}`;
+  await request('DELETE', path);
+}
+
+async function isUsernameBanned(name) {
+  const path = `${BASE_PATH}/banned/${encodeDocId(name)}`;
+  try {
+    await request('GET', path);
+    return true; // doc exists = banned
+  } catch (e) {
+    if (/404/.test(e.message)) return false;
+    throw e;
+  }
+}
+
+async function listBannedUsernames() {
+  const path = `${BASE_PATH}/banned?pageSize=300`;
+  const result = await request('GET', path);
+  const docs = result.documents || [];
+  return docs.map((doc) => {
+    const parts = doc.name.split('/');
+    return decodeURIComponent(parts[parts.length - 1]);
+  });
+}
+
 module.exports = {
   setLeaderboardEntry,
   listLeaderboardEntries,
   deleteLeaderboardEntry,
   getUsernameOwner,
   claimUsername,
+  banUsername,
+  unbanUsername,
+  isUsernameBanned,
+  listBannedUsernames,
 };

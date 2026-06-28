@@ -50,6 +50,9 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   devGetAllEntries: () => ipcRenderer.invoke('dev-get-all-entries'),
   devDeleteEntry: (docId) => ipcRenderer.invoke('dev-delete-entry', docId),
   devDeleteByUsername: (name) => ipcRenderer.invoke('dev-delete-by-username', name),
+  devBanUsername: (name) => ipcRenderer.invoke('dev-ban-username', name),
+  devUnbanUsername: (name) => ipcRenderer.invoke('dev-unban-username', name),
+  devListBanned: () => ipcRenderer.invoke('dev-list-banned'),
   devGetState: () => ipcRenderer.invoke('dev-get-state'),
   devGetRecentErrors: () => ipcRenderer.invoke('dev-get-recent-errors'),
 
