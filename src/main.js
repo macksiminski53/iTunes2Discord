@@ -610,40 +610,46 @@ function runApp() {
     }
   }
 
-  // ---- Album artwork: iTunes API lookup + Discord CDN upload ----
-  // Discord Rich Presence won't render arbitrary external URLs as images --
-  // it only accepts pre-registered asset keys or Discord CDN URLs. So the
-  // pipeline is two steps:
-  //   1. Look up the track on the iTunes Search API to get Apple's artwork URL
-  //   2. Download that image and re-upload it to Discord CDN via the bot,
-  //      then use the resulting cdn.discordapp.com URL as largeImageKey
-  //
-  const ARTWORK_BOT_TOKEN = 'YOUR_BOT_TOKEN_HERE';
- const IMGBB_API_KEY = 'YOUR_IMGBB_API_KEY_HERE';
-
-  // Two-level cache:
-  //   artworkUrlCache  — mzstatic URL from iTunes API (survives until the
-  //                      app restarts; avoids redundant iTunes API calls)
-  //   discordCdnCache  — final cdn.discordapp.com URL (same lifetime; avoids
-  //                      re-uploading the same art to the bot channel)
-  // Both are keyed by "trackName||artistName" so the same song never hits
-  // the network twice in the same session regardless of which step it's at.
+  // ---- Album artwork upload (Imgur) ----
+  // Discord Rich Presence images must be either pre-uploaded asset keys or a
+  // public https:// URL it can fetch -- it can't read files off the user's
+  // disk. So for real per-song album art, we upload each track's artwork to
+  // Imgur anonymously (no account needed) and use the resulting URL.
   const artworkUrlCache = new Map();
-  const catboxCache = new Map();
 
-  // Step 1: resolve the iTunes CDN URL for a track.
-  function fetchiTunesArtworkUrl(cleanName, cleanArtist) {
+  function uploadArtworkToImgur(filePath) {
     return new Promise((resolve) => {
-      const searchTerms = [cleanName, cleanArtist].filter(Boolean).join(' ');
-      const query = encodeURIComponent(searchTerms.trim());
-      const reqPath = `/search?term=${query}&media=music&limit=5&entity=song`;
+      let imageData;
+      try {
+        imageData = fs.readFileSync(filePath, { encoding: 'base64' });
+      } catch (e) {
+        log.warn('Could not read artwork file:', e.message);
+        return resolve(null);
+      }
+
+      // Hash the actual image bytes for the cache key -- the artwork file on
+      // disk gets overwritten in place for every new track, so caching by
+      // file PATH would incorrectly reuse a stale URL from a previous song.
+      const contentHash = crypto.createHash('md5').update(imageData).digest('hex');
+      if (artworkUrlCache.has(contentHash)) {
+        return resolve(artworkUrlCache.get(contentHash));
+      }
+
+      const postData = `image=${encodeURIComponent(imageData)}&type=base64`;
 
       const req = https.request(
         {
-          hostname: 'itunes.apple.com',
-          path: reqPath,
-          method: 'GET',
-          timeout: 8000,
+          hostname: 'api.imgur.com',
+          path: '/3/image',
+          method: 'POST',
+          headers: {
+            // Imgur's public anonymous-upload Client ID -- meant to be
+            // embedded in client apps, not a secret.
+            Authorization: 'Client-ID 546c25a59c58ad7',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Length': Buffer.byteLength(postData),
+          },
+          timeout: 10000,
         },
         (res) => {
           let body = '';
@@ -651,195 +657,41 @@ function runApp() {
           res.on('end', () => {
             try {
               const json = JSON.parse(body);
-              const results = json?.results || [];
-              if (results.length === 0) {
-                log.warn('No artwork found for:', cleanName, cleanArtist);
-                return resolve(null);
-              }
-
-              // Prefer the result whose artist name best matches
-              let best = results[0];
-              if (cleanArtist) {
-                const artistLower = cleanArtist.toLowerCase();
-                const match = results.find(r =>
-                  r.artistName && r.artistName.toLowerCase().includes(artistLower.split(' ')[0])
-                );
-                if (match) best = match;
-              }
-
-              if (best?.artworkUrl100) {
-                const url = best.artworkUrl100.replace('100x100bb', '500x500bb');
-                log.info('Artwork found via iTunes API:', url);
+              if (json.success && json.data && json.data.link) {
+                const url = json.data.link;
+                artworkUrlCache.set(contentHash, url);
+                // Keep the cache from growing forever across a long session.
+                if (artworkUrlCache.size > 50) {
+                  const firstKey = artworkUrlCache.keys().next().value;
+                  artworkUrlCache.delete(firstKey);
+                }
                 resolve(url);
               } else {
-                log.warn('No artwork URL in iTunes result for:', cleanName, cleanArtist);
+                log.warn('Imgur upload did not return a link:', body.slice(0, 200));
                 resolve(null);
               }
             } catch (e) {
-              log.warn('Failed to parse iTunes API response:', e.message);
+              log.warn('Failed to parse Imgur response:', e.message);
               resolve(null);
             }
           });
         }
       );
 
-      req.on('error', (e) => { log.warn('iTunes API request failed:', e.message); resolve(null); });
-      req.on('timeout', () => { req.destroy(); log.warn('iTunes API request timed out'); resolve(null); });
+      req.on('error', (e) => {
+        log.warn('Imgur upload request failed:', e.message);
+        resolve(null);
+      });
+      req.on('timeout', () => {
+        req.destroy();
+        log.warn('Imgur upload timed out');
+        resolve(null);
+      });
+
+      req.write(postData);
       req.end();
     });
   }
-
-  // Step 2: download image bytes from a URL (follows one redirect, which
-  // Apple's CDN often requires).
-  function downloadImageBuffer(imageUrl) {
-    return new Promise((resolve) => {
-      const parsed = new URL(imageUrl);
-      const reqOptions = {
-        hostname: parsed.hostname,
-        path: parsed.pathname + parsed.search,
-        method: 'GET',
-        timeout: 10000,
-        headers: { 'User-Agent': 'MusicToDiscord/1.0' },
-      };
-
-      const doRequest = (opts) => {
-        const req = https.request(opts, (res) => {
-          // Follow a single redirect (Apple CDN sends 302s)
-          if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
-            try {
-              const redirect = new URL(res.headers.location);
-              return doRequest({
-                hostname: redirect.hostname,
-                path: redirect.pathname + redirect.search,
-                method: 'GET',
-                timeout: 10000,
-                headers: { 'User-Agent': 'MusicToDiscord/1.0' },
-              });
-            } catch (e) {
-              log.warn('Bad redirect URL from image host:', e.message);
-              return resolve(null);
-            }
-          }
-
-          if (res.statusCode !== 200) {
-            log.warn('Image download failed, HTTP', res.statusCode);
-            return resolve(null);
-          }
-
-          const chunks = [];
-          res.on('data', (chunk) => chunks.push(chunk));
-          res.on('end', () => resolve(Buffer.concat(chunks)));
-        });
-
-        req.on('error', (e) => { log.warn('Image download error:', e.message); resolve(null); });
-        req.on('timeout', () => { req.destroy(); log.warn('Image download timed out'); resolve(null); });
-        req.end();
-      };
-
-      doRequest(reqOptions);
-    });
-  }
-
-  // Step 3: upload image buffer to imgbb and return the permanent URL.
-  // imgbb is a free image host with a simple API -- uploads are permanent
-  // and the resulting i.ibb.co URL is a plain https:// link that Discord
-  // Rich Presence renders reliably as a largeImageKey.
-  const IMGBB_API_KEY = '4c405f46e9bd47ffac139430bc33f444';
-
-  function uploadImageToImgbb(imageBuffer, filename) {
-    return new Promise((resolve) => {
-      // imgbb expects a base64-encoded image POSTed as form data
-      const base64Image = imageBuffer.toString('base64');
-      const formData = `key=${IMGBB_API_KEY}&image=${encodeURIComponent(base64Image)}&name=${encodeURIComponent(filename.replace('.jpg', ''))}`;
-      const bodyBuffer = Buffer.from(formData, 'utf8');
-
-      const req = https.request(
-        {
-          hostname: 'api.imgbb.com',
-          path: '/1/upload',
-          method: 'POST',
-          timeout: 15000,
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Content-Length': bodyBuffer.length,
-          },
-        },
-        (res) => {
-          let responseBody = '';
-          res.on('data', (chunk) => (responseBody += chunk));
-          res.on('end', () => {
-            try {
-              const json = JSON.parse(responseBody);
-              const url = json?.data?.url || null;
-              if (url) {
-                log.info('Artwork uploaded to imgbb:', url);
-                resolve(url);
-              } else {
-                log.warn('imgbb upload failed, response:', responseBody.slice(0, 200));
-                resolve(null);
-              }
-            } catch (e) {
-              log.warn('Failed to parse imgbb response:', e.message);
-              resolve(null);
-            }
-          });
-        }
-      );
-
-      req.on('error', (e) => { log.warn('imgbb upload request failed:', e.message); resolve(null); });
-      req.on('timeout', () => { req.destroy(); log.warn('imgbb upload timed out'); resolve(null); });
-      req.write(bodyBuffer);
-      req.end();
-    });
-  }
-
-  // Main artwork resolver: checks caches first, then runs the full pipeline.
-  async function fetchArtworkUrl(trackName, artistName) {
-    if (!trackName) return null;
-
-    // Strip source tags like "(youtube)", "(soundcloud)" etc.
-    const cleanName = trackName.replace(/\s*\([^)]*(?:youtube|soundcloud|spotify|music|app)[^)]*\)\s*/gi, '').trim();
-    const cleanArtist = (artistName || '').replace(/\s*\([^)]*(?:youtube|soundcloud|spotify|music|app)[^)]*\)\s*/gi, '').trim();
-    const cacheKey = `${cleanName}||${cleanArtist}`;
-
-    // Return Discord CDN URL immediately if we already uploaded this track
-    if (catboxCache.has(cacheKey)) {
-      return catboxCache.get(cacheKey);
-    }
-
-    // Step 1: get the iTunes mzstatic URL (cached separately to avoid
-    // redundant API calls if the CDN upload previously failed)
-    let iTunesUrl = artworkUrlCache.get(cacheKey);
-    if (!iTunesUrl) {
-      iTunesUrl = await fetchiTunesArtworkUrl(cleanName, cleanArtist);
-      if (!iTunesUrl) return null;
-      artworkUrlCache.set(cacheKey, iTunesUrl);
-      if (artworkUrlCache.size > 100) {
-        artworkUrlCache.delete(artworkUrlCache.keys().next().value);
-      }
-    }
-
-    // Step 2: download the image from Apple's CDN
-    const imageBuffer = await downloadImageBuffer(iTunesUrl);
-    if (!imageBuffer) {
-      log.warn('Failed to download artwork image for:', cleanName);
-      return null;
-    }
-
-    // Step 3: upload to Catbox for a permanent public URL
-    const safeFilename = `${cleanName.replace(/[^a-z0-9]/gi, '_').slice(0, 40)}.jpg`;
-    const cdnUrl = await uploadImageToImgbb(imageBuffer, safeFilename);
-    if (!cdnUrl) return null;
-
-    // Cache the Discord CDN URL so we don't re-upload the same art
-    catboxCache.set(cacheKey, cdnUrl);
-    if (catboxCache.size > 100) {
-      catboxCache.delete(catboxCache.keys().next().value);
-    }
-
-    return cdnUrl;
-  }
-
 
   // ---- Now-playing embed ----
   // Posts (or edits) a rich embed in the Discord channel whenever the track
@@ -918,7 +770,6 @@ function runApp() {
       req.end();
     });
   }
-
   async function setPresence(track) {
     if (!connected || !rpc?.user) {
       log.warn('Skipped presence update — not connected to Discord yet');
@@ -934,14 +785,14 @@ function runApp() {
     const startTimestamp = Math.floor(now - track.position * 1000);
     const endTimestamp = Math.floor(now + (track.duration - track.position) * 1000);
 
-    // Look up artwork via iTunes Search API — no upload needed, returns a
-    // direct URL from Apple's CDN based on song name + artist.
-    // Discord RPC accepts external image URLs directly as the largeImageKey.
+    // Try to use the real album art (uploaded to Imgur so Discord can fetch
+    // it); fall back to the app's static logo if there's no artwork or the
+    // upload fails for any reason.
     let largeImageKey = 'app_logo';
-
-    const artworkUrl = await fetchArtworkUrl(track.name, track.artist);
-    if (artworkUrl) {
-      largeImageKey = artworkUrl;
+    let artworkUrl = null;
+    if (track.artworkPath) {
+      artworkUrl = await uploadArtworkToImgur(track.artworkPath);
+      if (artworkUrl) largeImageKey = artworkUrl;
     }
 
     const activity = {
