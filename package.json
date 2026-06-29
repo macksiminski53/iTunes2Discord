@@ -26,8 +26,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "disableWelcomePage": true
+      "createStartMenuShortcut": true
     },
     "publish": {
       "provider": "github",
