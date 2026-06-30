@@ -1460,8 +1460,8 @@ function runApp() {
       if (on) {
         preMiniSize = mainWindow.getBounds();
         mainWindow.setAlwaysOnTop(true, 'floating');
-        mainWindow.setSize(320, 200);
-        mainWindow.setMinimumSize(280, 160);
+        mainWindow.setMinimumSize(200, 240);
+        mainWindow.setSize(220, 280);
       } else {
         mainWindow.setAlwaysOnTop(false);
         mainWindow.setMinimumSize(320, 400);

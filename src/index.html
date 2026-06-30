@@ -1372,7 +1372,7 @@
     50%      { transform: scaleY(1); }
   }
 
-  /* ---- Mini mode: compact always-on-top now-playing ---- */
+  /* ---- Mini mode: big spinning album art + song title only ---- */
   body.mini-mode #tabs,
   body.mini-mode #timer-wrap,
   body.mini-mode #groove-wrap,
@@ -1381,6 +1381,8 @@
   body.mini-mode #clock-wrap,
   body.mini-mode #visualizer,
   body.mini-mode #listening-party,
+  body.mini-mode #eyebrow,
+  body.mini-mode #track-artist,
   body.mini-mode #view-leaderboard,
   body.mini-mode #view-wrapped,
   body.mini-mode #view-share,
@@ -1389,11 +1391,53 @@
   body.mini-mode #view-dev {
     display: none !important;
   }
-  body.mini-mode #view-now-playing { display: flex !important; }
-  body.mini-mode #hero { padding: 10px 14px; }
-  body.mini-mode #art-wrap { width: 56px; height: 56px; }
-  body.mini-mode #track-name { font-size: 15px; }
-  body.mini-mode #track-artist { font-size: 12px; }
+  body.mini-mode #view-now-playing {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+  }
+  /* Stack art over title, centered */
+  body.mini-mode #hero {
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 0;
+  }
+  /* Big circular spinning album art */
+  body.mini-mode #art-wrap {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  body.mini-mode #art-img,
+  body.mini-mode #art-fallback {
+    border-radius: 50%;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  /* Spin slowly while playing; pause when not */
+  body.mini-mode.is-playing #art-wrap:not(:hover) {
+    animation: mini-spin 8s linear infinite;
+  }
+  @keyframes mini-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+  body.mini-mode #track-meta {
+    text-align: center;
+    width: 100%;
+  }
+  body.mini-mode #track-name {
+    font-size: 15px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   /* ---- Listening party feed ---- */
   #party-feed { display: flex; flex-direction: column; gap: 8px; }
