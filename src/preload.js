@@ -25,6 +25,14 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   // Wrapped
   getWrapped: (monthKey) => ipcRenderer.invoke('get-wrapped', monthKey),
   getWrappedMonths: () => ipcRenderer.invoke('get-wrapped-months'),
+  resetWrapped: () => ipcRenderer.invoke('reset-wrapped'),
+  getThrowback: () => ipcRenderer.invoke('get-throwback'),
+
+  // Achievements
+  getAchievements: () => ipcRenderer.invoke('get-achievements'),
+  onAchievementsChanged: (callback) => {
+    ipcRenderer.on('achievements-changed', () => callback());
+  },
 
   // Streaks
   getStreaks: () => ipcRenderer.invoke('get-streaks'),

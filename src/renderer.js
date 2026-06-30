@@ -17,6 +17,135 @@ const elBtnQuit = document.getElementById('btn-quit');
 const elBtnMin = document.getElementById('btn-min');
 const elBtnClose = document.getElementById('btn-close');
 
+// ---- Animation helpers ----
+// Re-trigger a one-shot CSS animation by removing the class, forcing a
+// reflow, then re-adding it. Without the reflow the browser coalesces the
+// remove+add and the animation never replays.
+function replayAnimation(el, className) {
+  if (!el) return;
+  el.classList.remove(className);
+  // eslint-disable-next-line no-unused-expressions
+  void el.offsetWidth; // force reflow
+  el.classList.add(className);
+}
+
+// Animate a number from 0 up to its target value over ~0.8s using
+// requestAnimationFrame with an ease-out curve. Falls back to setting the
+// final value directly if reduced motion is preferred.
+function countUp(el, target) {
+  if (!el) return;
+  const finalText = (target || 0).toLocaleString();
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    el.textContent = finalText;
+    return;
+  }
+  const duration = 800;
+  const start = performance.now();
+  function frame(now) {
+    const t = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+    el.textContent = Math.round(eased * target).toLocaleString();
+    if (t < 1) {
+      requestAnimationFrame(frame);
+    } else {
+      el.textContent = finalText;
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+// Track the last-rendered song so we only fire the change animations when the
+// song actually changes, not on every 1s position tick.
+let lastAnimatedSongKey = null;
+
+// ---- Dynamic theme from album art ----
+// Extracts a dominant color from the current cover and retints the UI. The
+// extracted color drives an accent variable; backgrounds are derived as very
+// dark tints of it so text stays readable regardless of how bright/pale the
+// cover is. A hidden canvas does the pixel sampling.
+const themeCanvas = document.createElement('canvas');
+const themeCtx = themeCanvas.getContext('2d', { willReadFrequently: true });
+
+function applyThemeFromArtwork(dataUrl) {
+  if (!dataUrl) { resetTheme(); return; }
+  const img = new Image();
+  // Remote covers (iTunes CDN) would otherwise taint the canvas and make
+  // getImageData() throw. Apple's CDN sends permissive CORS headers, so
+  // requesting the image anonymously lets us read its pixels. Harmless for
+  // local data: URLs, which are same-origin anyway.
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    try {
+      // Downscale heavily -- we only need an average/dominant hue, not detail.
+      const w = 32, h = 32;
+      themeCanvas.width = w;
+      themeCanvas.height = h;
+      themeCtx.drawImage(img, 0, 0, w, h);
+      const { data } = themeCtx.getImageData(0, 0, w, h);
+
+      // Bucket pixels by coarse hue and pick the most saturated/frequent one,
+      // skipping near-black and near-white pixels which make poor accents.
+      let rSum = 0, gSum = 0, bSum = 0, count = 0;
+      let best = null, bestScore = -1;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+        if (a < 200) continue;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        const lum = (max + min) / 2;
+        const sat = max === 0 ? 0 : (max - min) / max;
+        // Skip extremes
+        if (lum < 25 || lum > 235) continue;
+        rSum += r; gSum += g; bSum += b; count++;
+        // Prefer vivid colors as the accent
+        const score = sat * 255 + (max - min);
+        if (score > bestScore) { bestScore = score; best = [r, g, b]; }
+      }
+
+      if (count === 0 || !best) { resetTheme(); return; }
+
+      // Accent = the most vivid pixel; nudge it brighter so it pops on dark bg.
+      let [ar, ag, ab] = best;
+      [ar, ag, ab] = brighten(ar, ag, ab, 1.15);
+      const accent = `rgb(${ar}, ${ag}, ${ab})`;
+
+      // Backgrounds = very dark tints of the average color, so the whole UI
+      // feels colored by the art but stays dark enough for white text.
+      const avgR = rSum / count, avgG = gSum / count, avgB = bSum / count;
+      const bg = `rgb(${Math.round(avgR * 0.10 + 10)}, ${Math.round(avgG * 0.10 + 10)}, ${Math.round(avgB * 0.10 + 12)})`;
+      const bgRaised = `rgb(${Math.round(avgR * 0.16 + 16)}, ${Math.round(avgG * 0.16 + 16)}, ${Math.round(avgB * 0.16 + 20)})`;
+
+      const root = document.documentElement;
+      root.style.setProperty('--indigo', accent);
+      root.style.setProperty('--sky', accent);
+      root.style.setProperty('--dyn-bg', bg);
+      root.style.setProperty('--dyn-bg-raised', bgRaised);
+      document.body.classList.add('dynamic-theme');
+    } catch (e) {
+      // Tainted canvas or any failure -> just fall back to the default theme.
+      resetTheme();
+    }
+  };
+  img.onerror = () => resetTheme();
+  img.src = dataUrl;
+}
+
+function brighten(r, g, b, factor) {
+  return [
+    Math.min(255, Math.round(r * factor)),
+    Math.min(255, Math.round(g * factor)),
+    Math.min(255, Math.round(b * factor)),
+  ];
+}
+
+function resetTheme() {
+  const root = document.documentElement;
+  root.style.removeProperty('--indigo');
+  root.style.removeProperty('--sky');
+  root.style.removeProperty('--dyn-bg');
+  root.style.removeProperty('--dyn-bg-raised');
+  document.body.classList.remove('dynamic-theme');
+}
+
 // Leaderboard / tabs
 const elTabBtnNowPlaying = document.getElementById('tab-btn-now-playing');
 const elTabBtnLeaderboard = document.getElementById('tab-btn-leaderboard');
@@ -63,6 +192,7 @@ const elUsernameSub = document.getElementById('username-sub');
 const elBtnChangeUsername = document.getElementById('btn-change-username');
 const elBtnRemoveUsername = document.getElementById('btn-remove-username');
 const elBtnDeleteStats = document.getElementById('btn-delete-stats');
+const elBtnResetWrapped = document.getElementById('btn-reset-wrapped');
 
 let currentUsername = null;
 
@@ -148,22 +278,47 @@ function render(state) {
   // Track info
   const track = state.track;
   if (track && (track.state === 'playing' || track.state === 'paused')) {
+    // Drives the equalizer bars, groove shimmer, and album-art float -- only
+    // while actually playing, so paused freezes them.
+    document.body.classList.toggle('is-playing', track.state === 'playing');
     elTrackName.textContent = track.name || 'Unknown track';
     elTrackArtist.textContent = track.artist || 'Unknown artist';
+
+    // Fire cross-fade animations only when the song genuinely changes, so the
+    // name/artist/art don't re-animate on every per-second position tick.
+    const songKey = `${track.name}|${track.artist}`;
+    const songChanged = songKey !== lastAnimatedSongKey;
+    if (songChanged) {
+      replayAnimation(elTrackName, 'text-animate');
+      replayAnimation(elTrackArtist, 'text-animate');
+      lastAnimatedSongKey = songKey;
+    }
 
     reanchor(track);
     paintTime();
 
-    if (track.artworkDataUrl) {
-      elArtImg.src = track.artworkDataUrl;
+    // Album art source: prefer the iTunes HTTP cover (works for Apple Music),
+    // fall back to the local data URL (classic iTunes), else the fallback img.
+    const artSrc = track.artworkHttpUrl || track.artworkDataUrl || null;
+    if (artSrc) {
+      elArtImg.src = artSrc;
       elArtImg.style.display = 'block';
       elArtFallback.style.display = 'none';
+      if (songChanged) replayAnimation(elArtImg, 'art-animate');
+      // Dynamic theme: pull the dominant color from the new cover and retint
+      // the UI. Only on song change so we don't re-extract every tick.
+      if (songChanged) applyThemeFromArtwork(artSrc);
     } else {
       elArtImg.style.display = 'none';
       elArtFallback.style.display = 'flex';
+      if (songChanged) replayAnimation(elArtFallback, 'art-animate');
+      if (songChanged) resetTheme();
     }
   } else {
     liveTrack = null;
+    lastAnimatedSongKey = null;
+    document.body.classList.remove('is-playing');
+    resetTheme();
     elTrackName.textContent = 'Nothing playing';
     elTrackArtist.textContent = 'Open Apple Music and press play';
     elGrooveFill.style.width = '0%';
@@ -248,6 +403,10 @@ function renderLeaderboard(entries) {
     // potentially many different people, shared across everyone's window.
     row.querySelector('.lb-name').textContent = entry.username || 'Unknown';
     row.querySelector('.lb-time').textContent = formatListeningTime(entry.totalSeconds);
+    // Stagger each row's entrance slightly so the list cascades in instead of
+    // appearing all at once. Capped so a long list doesn't take forever.
+    row.classList.add('row-animate');
+    row.style.animationDelay = `${Math.min(i * 0.04, 0.5)}s`;
     elLeaderboardList.appendChild(row);
   });
 }
@@ -635,6 +794,26 @@ elBtnDeleteStats.addEventListener('click', () => {
   });
 });
 
+elBtnResetWrapped.addEventListener('click', () => {
+  const confirmed = window.confirm(
+    "Clear all your play history? This wipes your Wrapped, streaks, and recommendations on this device and can't be undone. Your leaderboard name and stats are not affected."
+  );
+  if (!confirmed) return;
+  elBtnResetWrapped.disabled = true;
+  elBtnResetWrapped.textContent = 'Resetting…';
+  window.musicToDiscord.resetWrapped().then((ok) => {
+    elBtnResetWrapped.disabled = false;
+    elBtnResetWrapped.textContent = 'Reset';
+    if (ok) {
+      // Refresh the Wrapped view if it's currently open so it reflects the
+      // now-empty history immediately rather than showing stale data.
+      if (typeof loadWrapped === 'function') {
+        try { loadWrapped(); } catch (e) {}
+      }
+    }
+  });
+});
+
 // ---- Wire up controls ----
 elToggleSync.addEventListener('click', () => window.musicToDiscord.togglePause());
 elToggleSync.addEventListener('keydown', (e) => {
@@ -722,6 +901,8 @@ async function loadWrapped() {
 
   renderWrapped(select.value || months[0]);
   loadStreaks();
+  loadAchievements();
+  loadThrowback();
 }
 
 async function renderWrapped(monthKey) {
@@ -739,8 +920,8 @@ async function renderWrapped(monthKey) {
   emptyEl.style.display = 'none';
   contentEl.style.display = 'flex';
 
-  // Stats
-  document.getElementById('wrapped-total-plays').textContent = data.totalPlays.toLocaleString();
+  // Stats — count up the two numeric ones for a satisfying roll-in
+  countUp(document.getElementById('wrapped-total-plays'), data.totalPlays);
   document.getElementById('wrapped-total-time').textContent = formatListeningTimeWrapped(data.totalSeconds);
   document.getElementById('wrapped-top-artist-short').textContent =
     data.topArtists[0] ? data.topArtists[0].artist.split(' ')[0] : '—';
@@ -749,7 +930,7 @@ async function renderWrapped(monthKey) {
   // Top songs
   const songsEl = document.getElementById('wrapped-top-songs');
   songsEl.innerHTML = data.topSongs.map((s, i) => `
-    <div class="wrapped-rank-row">
+    <div class="wrapped-rank-row row-animate" style="animation-delay:${Math.min(i * 0.06, 0.5)}s">
       <div class="wrapped-rank-num">${i + 1}</div>
       <div class="wrapped-rank-info">
         <div class="wrapped-rank-name">${esc(s.name)}</div>
@@ -762,7 +943,7 @@ async function renderWrapped(monthKey) {
   // Top artists
   const artistsEl = document.getElementById('wrapped-top-artists');
   artistsEl.innerHTML = data.topArtists.map((a, i) => `
-    <div class="wrapped-rank-row">
+    <div class="wrapped-rank-row row-animate" style="animation-delay:${Math.min(i * 0.06, 0.5)}s">
       <div class="wrapped-rank-num">${i + 1}</div>
       <div class="wrapped-rank-info">
         <div class="wrapped-rank-name">${esc(a.artist || 'Unknown')}</div>
@@ -826,6 +1007,67 @@ async function loadStreaks() {
     data.longest > 0 ? `${data.longest}d` : '0';
   document.getElementById('streak-today').textContent = data.todayCount;
 }
+
+// ---- Achievements (loaded as part of Wrapped) ----
+// Remembers which badges were unlocked last render so newly-earned ones can
+// pop in with an animation rather than just appearing.
+let knownUnlockedBadges = new Set();
+
+async function loadAchievements() {
+  const data = await window.musicToDiscord.getAchievements();
+  if (!data) return;
+  const grid = document.getElementById('achievements-grid');
+  const progress = document.getElementById('ach-progress');
+  progress.textContent = `${data.unlockedCount}/${data.total}`;
+
+  grid.innerHTML = data.badges.map((b) => {
+    const isNew = b.unlocked && !knownUnlockedBadges.has(b.id);
+    const cls = `ach-badge ${b.unlocked ? 'unlocked' : 'locked'}${isNew ? ' just-unlocked' : ''}`;
+    // title attribute gives a native tooltip with the description
+    const tip = b.unlocked ? `${b.title} — ${b.desc}` : `Locked: ${b.desc}`;
+    return `
+      <div class="${cls}" title="${esc(tip)}">
+        <div class="ach-badge-emoji">${b.unlocked ? b.emoji : '🔒'}</div>
+        <div class="ach-badge-title">${esc(b.title)}</div>
+      </div>
+    `;
+  }).join('');
+
+  knownUnlockedBadges = new Set(data.badges.filter((b) => b.unlocked).map((b) => b.id));
+}
+
+// ---- "On this day" throwback (loaded as part of Wrapped) ----
+async function loadThrowback() {
+  const card = document.getElementById('throwback-card');
+  const content = document.getElementById('throwback-content');
+  const data = await window.musicToDiscord.getThrowback();
+  if (!data) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+  const songs = data.topSongs.map((s) => `
+    <div class="tb-song">
+      <span>${esc(s.name)}</span>
+      <span style="color:var(--text-dim)">${esc(s.artist)}</span>
+      <span class="tb-count">${s.count}×</span>
+    </div>
+  `).join('');
+  content.innerHTML = `
+    <div class="tb-label">${esc(data.label)}</div>
+    <div class="tb-date">${esc(data.dateStr)} · ${data.totalPlays} song${data.totalPlays === 1 ? '' : 's'} played</div>
+    ${songs}
+  `;
+}
+
+// Refresh achievements live when the main process unlocks one mid-session,
+// so the badge pops in even if the Wrapped tab is already open.
+window.musicToDiscord.onAchievementsChanged(() => {
+  // Only refresh if the wrapped view is currently visible to avoid needless work
+  if (document.body.classList.contains('tab-wrapped')) {
+    loadAchievements();
+  }
+});
 
 // ---- Share card ----
 async function loadShareCard() {
@@ -1029,4 +1271,3 @@ window.musicToDiscord.onSettingChanged(({ key, value }) => {
 // ================================================================
 // WIDE LAYOUT MODE
 // ================================================================
-

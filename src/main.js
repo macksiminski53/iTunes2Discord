@@ -147,16 +147,186 @@ function runApp() {
     }
   }
 
-  function recordPlay(track) {
+  // Records a completed (or skipped) play. listenedSeconds is how long the
+  // user ACTUALLY listened -- not the song's full length -- so skipping a
+  // track after a few seconds only counts those few seconds, not the whole
+  // song. Falls back to the track's own position if no explicit value given.
+  function recordPlay(track, listenedSeconds) {
     if (!track || !track.name) return;
+    const listened = typeof listenedSeconds === 'number'
+      ? Math.max(0, Math.round(listenedSeconds))
+      : Math.round(track.position || 0);
     playHistory.push({
       name: track.name,
       artist: track.artist || '',
       album: track.album || '',
       timestamp: Date.now(),
-      duration: track.duration || 0,
+      duration: listened,        // actual listened time, in seconds
+      trackLength: track.duration || 0, // full song length, for reference
     });
     saveHistory();
+    // Re-evaluate achievements now that a new play has landed. Wrapped in a
+    // try so a badge bug can never break play recording.
+    try { checkAchievements(); } catch (e) { log.warn('Achievement check failed:', e.message); }
+  }
+
+  // ---- Achievements / milestones ----
+  // Badges unlocked from local play-history stats. Each has an id, emoji,
+  // title, description, and a check(stats) predicate. Unlocked IDs are saved
+  // to disk so we only notify once per badge. Entirely local -- no network.
+  const achievementsFile = path.join(app.getPath('userData'), 'achievements.json');
+
+  const ACHIEVEMENTS = [
+    { id: 'first_play',  emoji: '🎵', title: 'First Note',        desc: 'Played your first song.',            check: (s) => s.totalPlays >= 1 },
+    { id: 'plays_10',    emoji: '🎧', title: 'Getting Warmed Up', desc: 'Played 10 songs.',                   check: (s) => s.totalPlays >= 10 },
+    { id: 'plays_100',   emoji: '💿', title: 'Century Club',      desc: 'Played 100 songs.',                  check: (s) => s.totalPlays >= 100 },
+    { id: 'plays_500',   emoji: '📀', title: 'Heavy Rotation',    desc: 'Played 500 songs.',                  check: (s) => s.totalPlays >= 500 },
+    { id: 'plays_1000',  emoji: '🏆', title: 'Audiophile',        desc: 'Played 1,000 songs.',                check: (s) => s.totalPlays >= 1000 },
+    { id: 'hours_1',     emoji: '⏱️', title: 'One Hour Down',     desc: 'Listened for 1 hour total.',         check: (s) => s.totalHours >= 1 },
+    { id: 'hours_10',    emoji: '🕙', title: 'Ten Hour Tour',     desc: 'Listened for 10 hours total.',       check: (s) => s.totalHours >= 10 },
+    { id: 'hours_50',    emoji: '🌌', title: 'Lost in Sound',     desc: 'Listened for 50 hours total.',       check: (s) => s.totalHours >= 50 },
+    { id: 'hours_100',   emoji: '👑', title: 'Sound Royalty',     desc: 'Listened for 100 hours total.',      check: (s) => s.totalHours >= 100 },
+    { id: 'night_owl',   emoji: '🦉', title: 'Night Owl',         desc: 'Played a song between 2-5am.',       check: (s) => s.playedLateNight },
+    { id: 'early_bird',  emoji: '🐦', title: 'Early Bird',        desc: 'Played a song between 5-7am.',       check: (s) => s.playedEarlyMorning },
+    { id: 'superfan',    emoji: '⭐', title: 'Superfan',          desc: 'Played one artist 50+ times.',       check: (s) => s.topArtistCount >= 50 },
+    { id: 'devoted',     emoji: '💖', title: 'Devoted',           desc: 'Played one song 25+ times.',         check: (s) => s.topSongCount >= 25 },
+    { id: 'explorer',    emoji: '🧭', title: 'Explorer',          desc: 'Played 50 different artists.',        check: (s) => s.uniqueArtists >= 50 },
+    { id: 'streak_3',    emoji: '🔥', title: 'On a Roll',         desc: '3-day listening streak.',            check: (s) => s.currentStreak >= 3 },
+    { id: 'streak_7',    emoji: '🔥', title: 'Week Strong',       desc: '7-day listening streak.',            check: (s) => s.longestStreak >= 7 },
+    { id: 'streak_30',   emoji: '🔥', title: 'Unstoppable',       desc: '30-day listening streak.',           check: (s) => s.longestStreak >= 30 },
+    { id: 'marathon',    emoji: '🏃', title: 'Marathoner',        desc: 'Played 50 songs in a single day.',   check: (s) => s.maxDayCount >= 50 },
+  ];
+
+  function loadUnlockedAchievements() {
+    try {
+      if (fs.existsSync(achievementsFile)) {
+        const parsed = JSON.parse(fs.readFileSync(achievementsFile, 'utf8'));
+        if (Array.isArray(parsed)) return new Set(parsed);
+      }
+    } catch (e) {
+      log.warn('Failed to load achievements:', e.message);
+    }
+    return new Set();
+  }
+
+  let unlockedAchievements = loadUnlockedAchievements();
+
+  function saveUnlockedAchievements() {
+    try {
+      fs.writeFileSync(achievementsFile, JSON.stringify([...unlockedAchievements]), 'utf8');
+    } catch (e) {
+      log.warn('Failed to save achievements:', e.message);
+    }
+  }
+
+  // Crunch playHistory into the stat shape the badge predicates expect.
+  function computeAchievementStats() {
+    const totalPlays = playHistory.length;
+    let totalSeconds = 0;
+    let playedLateNight = false;
+    let playedEarlyMorning = false;
+    const artistCounts = {};
+    const songCounts = {};
+    const dayCounts = {};
+
+    for (const e of playHistory) {
+      totalSeconds += e.duration || 0;
+      const d = new Date(e.timestamp);
+      const hour = d.getHours();
+      if (hour >= 2 && hour < 5) playedLateNight = true;
+      if (hour >= 5 && hour < 7) playedEarlyMorning = true;
+
+      const artist = e.artist || 'Unknown';
+      artistCounts[artist] = (artistCounts[artist] || 0) + 1;
+      const songKey = `${e.name}||${e.artist}`;
+      songCounts[songKey] = (songCounts[songKey] || 0) + 1;
+      const dayKey = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      dayCounts[dayKey] = (dayCounts[dayKey] || 0) + 1;
+    }
+
+    const topArtistCount = Object.values(artistCounts).reduce((m, c) => Math.max(m, c), 0);
+    const topSongCount = Object.values(songCounts).reduce((m, c) => Math.max(m, c), 0);
+    const maxDayCount = Object.values(dayCounts).reduce((m, c) => Math.max(m, c), 0);
+    const uniqueArtists = Object.keys(artistCounts).length;
+
+    const days = new Set(Object.keys(dayCounts).map((k) => {
+      const [y, m, d] = k.split('-').map(Number);
+      return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }));
+    const sorted = [...days].sort();
+    let longestStreak = sorted.length ? 1 : 0, run = sorted.length ? 1 : 0;
+    for (let i = 1; i < sorted.length; i++) {
+      const diff = (new Date(sorted[i]) - new Date(sorted[i - 1])) / 86400000;
+      if (diff === 1) { run++; longestStreak = Math.max(longestStreak, run); }
+      else run = 1;
+    }
+    const today = new Date();
+    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    let currentStreak = 0;
+    let checkMs = days.has(todayKey) ? new Date(todayKey).getTime() : new Date(todayKey).getTime() - 86400000;
+    while (true) {
+      const checkKey = new Date(checkMs).toISOString().slice(0, 10);
+      if (!days.has(checkKey)) break;
+      currentStreak++;
+      checkMs -= 86400000;
+    }
+
+    return {
+      totalPlays,
+      totalHours: totalSeconds / 3600,
+      playedLateNight,
+      playedEarlyMorning,
+      topArtistCount,
+      topSongCount,
+      maxDayCount,
+      uniqueArtists,
+      currentStreak,
+      longestStreak,
+    };
+  }
+
+  function fireAchievementNotification(ach) {
+    try {
+      const { Notification } = require('electron');
+      if (!Notification.isSupported()) return;
+      const n = new Notification({
+        title: `${ach.emoji} Achievement Unlocked!`,
+        body: `${ach.title} — ${ach.desc}`,
+        icon: path.join(__dirname, '..', 'assets', 'tray-icon.png'),
+      });
+      n.show();
+    } catch (e) {
+      log.warn('Failed to show achievement notification:', e.message);
+    }
+  }
+
+  // Check all badges; unlock + notify any newly earned. The first check after
+  // launch runs silent so a user with lots of history isn't spammed at startup
+  // -- those are marked unlocked without a popup.
+  function checkAchievements({ silent = false } = {}) {
+    const stats = computeAchievementStats();
+    const newlyUnlocked = [];
+    for (const ach of ACHIEVEMENTS) {
+      if (unlockedAchievements.has(ach.id)) continue;
+      let earned = false;
+      try { earned = ach.check(stats); } catch (e) { earned = false; }
+      if (earned) {
+        unlockedAchievements.add(ach.id);
+        newlyUnlocked.push(ach);
+      }
+    }
+    if (newlyUnlocked.length > 0) {
+      saveUnlockedAchievements();
+      if (!silent) {
+        newlyUnlocked.forEach((ach, i) => {
+          setTimeout(() => fireAchievementNotification(ach), i * 1200);
+        });
+      }
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('achievements-changed');
+      }
+    }
+    return stats;
   }
 
   let tray = null;
@@ -167,6 +337,15 @@ function runApp() {
   let lastPosition = null;
   let lastDiscordPushAt = 0; // Date.now() of the last actual setActivity call
   let lastTrackState = null; // cached for the window's initial state request
+
+  // Tracks the song currently playing and how many real seconds the user has
+  // actually listened to it so far. When the song changes (or playback stops),
+  // we record THIS accumulated value as the play's duration -- not the song's
+  // full length -- so skipped songs only count the time actually heard.
+  let currentSongTrack = null;        // the track object being listened to
+  let currentSongListenedSec = 0;     // real seconds heard of currentSongTrack
+  let currentArtHttpUrl = null;       // iTunes artwork URL for the current song
+  let lastRawTrack = null;            // most recent raw track object, for re-push
   let pollTimer = null;
   let enabled = true;
   let warnedUnsupportedPlatform = false;
@@ -610,12 +789,120 @@ function runApp() {
     }
   }
 
-  // ---- Album artwork upload (Imgur) ----
-  // Discord Rich Presence images must be either pre-uploaded asset keys or a
-  // public https:// URL it can fetch -- it can't read files off the user's
-  // disk. So for real per-song album art, we upload each track's artwork to
-  // Imgur anonymously (no account needed) and use the resulting URL.
+  // ---- Album artwork ----
+  // Discord bot token + channel for the now-playing embed. These must be set
+  // locally and never committed to GitHub.
+  const ARTWORK_BOT_TOKEN = 'YOUR_BOT_TOKEN_HERE'; // Discord bot token for now-playing embed
+  const ARTWORK_CHANNEL_ID = '1520996807889653851'; // channel ID for now-playing embed
+
+  // Two complementary artwork sources:
+  //   * Imgur upload (uploadArtworkToImgur) — turns a LOCAL artwork file
+  //     into a public URL for use as the Rich Presence largeImageKey.
+  //     Requires track.artworkPath, which SMTC/Apple Music often doesn't
+  //     provide, so this frequently no-ops.
+  //   * iTunes Search API (fetchiTunesArtworkUrl) — looks up a public
+  //     artwork URL from just song name + artist. No local file needed.
+  //     Used for the now-playing embed thumbnail (Discord fetches embed
+  //     images server-side, so a plain external URL works there even though
+  //     Rich Presence is pickier).
   const artworkUrlCache = new Map();
+  const itunesUrlCache = new Map();
+
+  // Look up a public artwork URL via the iTunes Search API by name + artist.
+  function fetchiTunesArtworkUrl(trackName, artistName) {
+    return new Promise((resolve) => {
+      if (!trackName) return resolve(null);
+      const cleanName = trackName.replace(/\s*\([^)]*(?:youtube|soundcloud|spotify|music|app)[^)]*\)\s*/gi, '').trim();
+      const cleanArtist = (artistName || '').replace(/\s*\([^)]*(?:youtube|soundcloud|spotify|music|app)[^)]*\)\s*/gi, '').trim();
+      const cacheKey = `${cleanName}||${cleanArtist}`;
+      if (itunesUrlCache.has(cacheKey)) return resolve(itunesUrlCache.get(cacheKey));
+
+      const searchTerms = [cleanName, cleanArtist].filter(Boolean).join(' ');
+      const query = encodeURIComponent(searchTerms.trim());
+      const reqPath = `/search?term=${query}&media=music&limit=5&entity=song`;
+
+      const req = https.request(
+        { hostname: 'itunes.apple.com', path: reqPath, method: 'GET', timeout: 8000 },
+        (res) => {
+          let body = '';
+          res.on('data', (chunk) => (body += chunk));
+          res.on('end', () => {
+            try {
+              const json = JSON.parse(body);
+              const results = json?.results || [];
+              if (results.length === 0) {
+                itunesUrlCache.set(cacheKey, null);
+                return resolve(null);
+              }
+
+              // Normalize for comparison: lowercase, strip punctuation, collapse
+              // spaces, and remove common noise like "(feat. ...)", "remix",
+              // "(hq)", years, etc. so near-matches still line up.
+              const norm = (s) => (s || '')
+                .toLowerCase()
+                .replace(/\(.*?\)|\[.*?\]/g, ' ')      // bracketed bits
+                .replace(/feat\.?.*$|ft\.?.*$/g, ' ')  // featured artists
+                .replace(/[^a-z0-9]+/g, ' ')           // punctuation
+                .replace(/\s+/g, ' ')
+                .trim();
+
+              const wantName = norm(cleanName);
+              const wantArtist = norm(cleanArtist);
+
+              // Token-overlap similarity: fraction of the wanted song's words
+              // that appear in the candidate's title.
+              const wordOverlap = (want, have) => {
+                const wantWords = want.split(' ').filter(Boolean);
+                const haveWords = new Set(have.split(' ').filter(Boolean));
+                if (wantWords.length === 0) return 0;
+                let hit = 0;
+                for (const w of wantWords) if (haveWords.has(w)) hit++;
+                return hit / wantWords.length;
+              };
+
+              // Score each candidate on name + artist match; require a strong
+              // combined match before trusting its artwork. Unreleased/leaked
+              // tracks usually have NO good catalog match -- better to show the
+              // fallback art than a confidently-wrong cover.
+              let best = null, bestScore = 0;
+              for (const r of results) {
+                const nameSim = wordOverlap(wantName, norm(r.trackName));
+                const artistSim = wantArtist
+                  ? wordOverlap(wantArtist, norm(r.artistName))
+                  : 1;
+                // Both matter; weight artist a bit so same-title-different-artist
+                // covers don't slip through.
+                const score = nameSim * 0.6 + artistSim * 0.4;
+                if (score > bestScore) { bestScore = score; best = r; }
+              }
+
+              // Confidence gate: need a solid combined match. Tuned so exact or
+              // near-exact catalog songs pass, but loose name-only collisions
+              // (the wrong-cover problem) fall through to null/fallback.
+              const CONFIDENCE_THRESHOLD = 0.72;
+              if (!best || bestScore < CONFIDENCE_THRESHOLD) {
+                log.info(`iTunes match too weak (${bestScore.toFixed(2)}) for: ${cleanName} — ${cleanArtist}; using fallback art`);
+                itunesUrlCache.set(cacheKey, null);
+                if (itunesUrlCache.size > 100) itunesUrlCache.delete(itunesUrlCache.keys().next().value);
+                return resolve(null);
+              }
+
+              const url = best.artworkUrl100 ? best.artworkUrl100.replace('100x100bb', '500x500bb') : null;
+              itunesUrlCache.set(cacheKey, url);
+              if (itunesUrlCache.size > 100) itunesUrlCache.delete(itunesUrlCache.keys().next().value);
+              resolve(url);
+            } catch (e) {
+              log.warn('Failed to parse iTunes API response:', e.message);
+              resolve(null);
+            }
+          });
+        }
+      );
+      req.on('error', (e) => { log.warn('iTunes API request failed:', e.message); resolve(null); });
+      req.on('timeout', () => { req.destroy(); log.warn('iTunes API request timed out'); resolve(null); });
+      req.end();
+    });
+  }
 
   function uploadArtworkToImgur(filePath) {
     return new Promise((resolve) => {
@@ -700,6 +987,55 @@ function runApp() {
   // channel with a new message every song.
   let nowPlayingMessageId = null;
 
+  // Update the embed to a neutral "not playing" state when music stops. We
+  // edit the existing message rather than deleting it, so the channel keeps a
+  // single tidy status message instead of churning messages. No-ops if we
+  // never posted one or the bot token isn't set.
+  async function clearNowPlayingEmbed() {
+    if (!ARTWORK_BOT_TOKEN || ARTWORK_BOT_TOKEN === 'YOUR_BOT_TOKEN_HERE') return;
+    if (!nowPlayingMessageId) return;
+
+    const embed = {
+      color: 0x747F8D,
+      author: { name: 'Music2Discord', icon_url: 'https://i.imgur.com/wSTFkRM.png' },
+      title: 'Nothing playing',
+      description: '**Status:** ⏹ Stopped',
+      footer: { text: 'MusicToDiscord' },
+      timestamp: new Date().toISOString(),
+    };
+    const payload = JSON.stringify({ embeds: [embed] });
+
+    return new Promise((resolve) => {
+      const req = https.request(
+        {
+          hostname: 'discord.com',
+          path: `/api/v10/channels/${ARTWORK_CHANNEL_ID}/messages/${nowPlayingMessageId}`,
+          method: 'PATCH',
+          timeout: 10000,
+          headers: {
+            Authorization: `Bot ${ARTWORK_BOT_TOKEN}`,
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload),
+          },
+        },
+        (res) => {
+          let body = '';
+          res.on('data', (chunk) => (body += chunk));
+          res.on('end', () => {
+            // If the message was deleted on Discord's side, forget the ID so
+            // the next play posts a fresh message instead of failing forever.
+            if (res.statusCode === 404) nowPlayingMessageId = null;
+            resolve();
+          });
+        }
+      );
+      req.on('error', (e) => { log.warn('Clear now-playing embed failed:', e.message); resolve(); });
+      req.on('timeout', () => { req.destroy(); resolve(); });
+      req.write(payload);
+      req.end();
+    });
+  }
+
   async function postNowPlayingEmbed(track, artworkUrl) {
     if (!ARTWORK_BOT_TOKEN || ARTWORK_BOT_TOKEN === 'YOUR_BOT_TOKEN_HERE') return;
 
@@ -746,6 +1082,14 @@ function runApp() {
           let body = '';
           res.on('data', (chunk) => (body += chunk));
           res.on('end', () => {
+            // The message we were editing no longer exists (deleted in the
+            // channel). Forget its ID and post a fresh one this same cycle so
+            // the user doesn't see a gap.
+            if (res.statusCode === 404 && nowPlayingMessageId) {
+              nowPlayingMessageId = null;
+              postNowPlayingEmbed(track, artworkUrl).finally(resolve);
+              return;
+            }
             try {
               const json = JSON.parse(body);
               if (json.id) {
@@ -753,8 +1097,6 @@ function runApp() {
                 log.info('Now-playing embed posted/updated, message ID:', json.id);
               } else {
                 log.warn('Now-playing embed: unexpected response', body.slice(0, 200));
-                // If the message was deleted from the channel, reset so we post fresh next time
-                nowPlayingMessageId = null;
               }
             } catch (e) {
               log.warn('Failed to parse now-playing embed response:', e.message);
@@ -785,14 +1127,14 @@ function runApp() {
     const startTimestamp = Math.floor(now - track.position * 1000);
     const endTimestamp = Math.floor(now + (track.duration - track.position) * 1000);
 
-    // Try to use the real album art (uploaded to Imgur so Discord can fetch
-    // it); fall back to the app's static logo if there's no artwork or the
-    // upload fails for any reason.
+    // Rich Presence artwork: upload the LOCAL artwork file to Imgur if SMTC
+    // gave us one; otherwise fall back to the static app logo. (Discord RPC
+    // won't reliably render arbitrary external URLs, so we can't just hand it
+    // the iTunes URL here -- it needs the Imgur-hosted one or an asset key.)
     let largeImageKey = 'app_logo';
-    let artworkUrl = null;
     if (track.artworkPath) {
-      artworkUrl = await uploadArtworkToImgur(track.artworkPath);
-      if (artworkUrl) largeImageKey = artworkUrl;
+      const uploaded = await uploadArtworkToImgur(track.artworkPath);
+      if (uploaded) largeImageKey = uploaded;
     }
 
     const activity = {
@@ -810,8 +1152,6 @@ function runApp() {
 
     try {
       await rpc.user.setActivity(activity);
-      // Fire and forget — embed post shouldn't block or fail the presence update
-      postNowPlayingEmbed(track, artworkUrl).catch((e) => log.warn('Now-playing embed failed:', e.message));
       return true;
     } catch (e) {
       log.warn('setActivity failed:', e.message);
@@ -837,10 +1177,25 @@ function runApp() {
         // Always update on the very first poll, even with no change, so the
         // tooltip never stays stuck on "starting..." forever.
         if (lastTrackKey !== null || !firstPollDone) {
+          // Music stopped -- record the song that was playing only if it was
+          // heard (nearly) in full, matching the skip rule used on song change.
+          if (currentSongTrack) {
+            const len = currentSongTrack.duration || 0;
+            const heard = currentSongListenedSec;
+            if (len > 0 && (heard >= len * 0.95 || heard >= len - 5)) {
+              recordPlay(currentSongTrack, heard);
+            }
+          }
+          currentSongTrack = null;
+          currentSongListenedSec = 0;
+
           lastTrackKey = null;
           lastPosition = null;
           if (connected && rpc?.user) await rpc.user.clearActivity().catch(() => {});
           updateTrayTooltip(`${APP_NAME} — nothing playing`);
+          // Reflect "stopped" in the channel embed too, so it doesn't sit
+          // there forever claiming the last song is still playing.
+          clearNowPlayingEmbed().catch((e) => log.warn('Clear embed failed:', e.message));
         }
         pushStateUpdate(track);
       } else {
@@ -856,7 +1211,23 @@ function runApp() {
         if (track.state === 'playing' && lastPollAt !== null) {
           const elapsedSec = (now - lastPollAt) / 1000;
           const cappedSec = Math.min(elapsedSec, (POLL_INTERVAL_MS / 1000) * 2);
-          if (cappedSec > 0) sessionSecondsThisMonth += cappedSec;
+          if (cappedSec > 0) {
+            sessionSecondsThisMonth += cappedSec;
+            // Also credit this elapsed time to the song currently playing, so
+            // we know how long it was ACTUALLY heard when it ends/changes.
+            const sameSongAsTracked = currentSongTrack &&
+              currentSongTrack.name === track.name &&
+              currentSongTrack.artist === track.artist;
+            if (sameSongAsTracked) {
+              currentSongListenedSec += cappedSec;
+              // Never count more than the song's own length for a single play
+              // (a loop registers as a separate play via rewind detection).
+              const len = currentSongTrack.duration || 0;
+              if (len > 0 && currentSongListenedSec > len) {
+                currentSongListenedSec = len;
+              }
+            }
+          }
         }
 
         // Same song/state as last poll, but the position jumped backwards
@@ -884,19 +1255,60 @@ function runApp() {
             lastDiscordPushAt = Date.now();
           }
 
-          // Record a play only on genuine track changes (not pause→play of
-          // the same song, and not position rewinds -- those reuse the same
-          // name+artist key as the song already playing).
+          // On a genuine song change, record the song that JUST ENDED -- but
+          // only if it was listened to (nearly) in full. A song counts as a
+          // real play when the user heard at least ~95% of its length (or
+          // within 5s of the end, whichever is more forgiving). Skipped songs
+          // -- heard only partway -- are dropped entirely, so they don't show
+          // up in Wrapped/top songs or add to listening time.
           const newSongKey = `${track.name}|${track.artist}`;
           const prevSongKey = previousTrackKey ? previousTrackKey.replace(/\|(playing|paused)$/, '') : null;
-          if (newSongKey !== prevSongKey && track.state === 'playing') {
-            recordPlay(track);
+          if (newSongKey !== prevSongKey) {
+            if (currentSongTrack) {
+              const len = currentSongTrack.duration || 0;
+              const heard = currentSongListenedSec;
+              const finishedSong = len > 0 &&
+                (heard >= len * 0.95 || heard >= len - 5);
+              if (finishedSong) {
+                recordPlay(currentSongTrack, heard);
+              }
+            }
+            // Start tracking the new song fresh.
+            currentSongTrack = track.state === 'playing'
+              ? { name: track.name, artist: track.artist, album: track.album, duration: track.duration }
+              : null;
+            currentSongListenedSec = 0;
+            currentArtHttpUrl = null; // cleared until the new cover is fetched
+          }
+
+          // Post/update the now-playing embed only on real changes (new song,
+          // or play↔pause), NOT on the every-15s position refresh -- editing
+          // the same embed repeatedly with identical content just burns
+          // Discord's edit rate limit for no benefit. The embed thumbnail
+          // uses the iTunes Search API (works from name+artist) rather than
+          // the local artwork file, which is usually empty for Apple Music.
+          if (isNewEvent) {
+            fetchiTunesArtworkUrl(track.name, track.artist)
+              .then((embedArt) => {
+                postNowPlayingEmbed(track, embedArt);
+                // Make the fetched cover available to the app window too --
+                // both for showing real album art and for the dynamic theme.
+                // Only update if this is still the current song.
+                if (currentSongTrack &&
+                    currentSongTrack.name === track.name &&
+                    currentSongTrack.artist === track.artist) {
+                  currentArtHttpUrl = embedArt || null;
+                  pushStateUpdate(lastRawTrack || track);
+                }
+              })
+              .catch((e) => log.warn('Now-playing embed failed:', e.message));
           }
 
           updateTrayTooltip(`${track.state === 'playing' ? '▶' : '⏸'} ${track.name} — ${track.artist}`);
           log.info('Now:', track.state, track.name, '-', track.artist);
         }
         lastPosition = track.position;
+        lastRawTrack = track;
         pushStateUpdate(track);
       }
       lastPollAt = now;
@@ -1072,6 +1484,7 @@ function runApp() {
       lastTrackState = {
         ...track,
         artworkDataUrl: artworkToDataUrl(track.artworkPath),
+        artworkHttpUrl: currentArtHttpUrl, // iTunes cover URL, if fetched
       };
     }
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1272,6 +1685,22 @@ function runApp() {
   }
 
   // ---- Wrapped IPC ----
+  // Clears all locally-stored play history, which is the sole data source for
+  // Wrapped, Streaks, and Recommendations. This is purely local (the file at
+  // %APPDATA%/musictodiscord/play-history.json) and does NOT touch the
+  // Firestore leaderboard -- that's a separate "Delete my stats" action.
+  ipcMain.handle('reset-wrapped', () => {
+    try {
+      playHistory = [];
+      saveHistory();
+      log.info('Wrapped/play history reset by user');
+      return true;
+    } catch (e) {
+      log.warn('Failed to reset Wrapped history:', e.message);
+      return false;
+    }
+  });
+
   ipcMain.handle('get-wrapped', (_event, monthKey) => {
     // monthKey format: "YYYY-MM". Defaults to current month.
     const month = monthKey || getCurrentMonthKey();
@@ -1346,6 +1775,51 @@ function runApp() {
     };
   });
 
+  // ---- "On this day" throwback ----
+  // Looks back at the same calendar day in previous weeks/months/years and
+  // returns what was playing then, for a nostalgia card in Wrapped. Returns
+  // the most notable past day that has plays, with its top songs.
+  ipcMain.handle('get-throwback', () => {
+    if (playHistory.length === 0) return null;
+    const now = new Date();
+
+    // Candidate look-back points: 1 week, 1 month, 3 months, 6 months, 1 year.
+    const candidates = [
+      { label: 'A week ago', date: new Date(now.getTime() - 7 * 86400000) },
+      { label: 'A month ago', date: new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()) },
+      { label: '3 months ago', date: new Date(now.getFullYear(), now.getMonth() - 3, now.getDate()) },
+      { label: '6 months ago', date: new Date(now.getFullYear(), now.getMonth() - 6, now.getDate()) },
+      { label: 'A year ago', date: new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()) },
+    ];
+
+    const dayKey = (d) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+
+    // Prefer the furthest-back candidate that actually has plays (more
+    // nostalgic), so check them in reverse order.
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const c = candidates[i];
+      const targetKey = dayKey(c.date);
+      const dayPlays = playHistory.filter((e) => dayKey(new Date(e.timestamp)) === targetKey);
+      if (dayPlays.length === 0) continue;
+
+      const songCounts = {};
+      for (const e of dayPlays) {
+        const k = `${e.name}||${e.artist}`;
+        if (!songCounts[k]) songCounts[k] = { name: e.name, artist: e.artist, count: 0 };
+        songCounts[k].count++;
+      }
+      const topSongs = Object.values(songCounts).sort((a, b) => b.count - a.count).slice(0, 3);
+
+      return {
+        label: c.label,
+        dateStr: c.date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }),
+        totalPlays: dayPlays.length,
+        topSongs,
+      };
+    }
+    return null;
+  });
+
   ipcMain.handle('get-wrapped-months', () => {
     // Returns a list of months that have any history, most recent first
     const months = new Set();
@@ -1357,6 +1831,25 @@ function runApp() {
   });
 
   // ---- Streaks ----
+  // ---- Achievements IPC ----
+  // Returns the full badge list with locked/unlocked status and current
+  // progress stats, so the renderer can show earned + locked badges.
+  ipcMain.handle('get-achievements', () => {
+    const stats = computeAchievementStats();
+    return {
+      stats,
+      badges: ACHIEVEMENTS.map((a) => ({
+        id: a.id,
+        emoji: a.emoji,
+        title: a.title,
+        desc: a.desc,
+        unlocked: unlockedAchievements.has(a.id),
+      })),
+      unlockedCount: ACHIEVEMENTS.filter((a) => unlockedAchievements.has(a.id)).length,
+      total: ACHIEVEMENTS.length,
+    };
+  });
+
   ipcMain.handle('get-streaks', () => {
     if (playHistory.length === 0) return { current: 0, longest: 0, todayCount: 0 };
 
@@ -1844,6 +2337,12 @@ function runApp() {
       startLeaderboardSync();
     }
 
+    // Mark already-earned achievements as unlocked at startup WITHOUT firing
+    // notifications, so a user with lots of existing history isn't spammed
+    // with popups for badges they earned long ago. New unlocks during the
+    // session will still notify normally.
+    try { checkAchievements({ silent: true }); } catch (e) { log.warn('Startup achievement check failed:', e.message); }
+
     // Check for updates ~5s after launch, then silently every few hours.
     // Using checkForUpdates() (not checkForUpdatesAndNotify) since we have
     // our own custom dialog for update-downloaded, and the "AndNotify"
@@ -1854,5 +2353,20 @@ function runApp() {
 
   app.on('window-all-closed', (e) => {
     e?.preventDefault?.();
+  });
+
+  // When the app is quitting, flush the song that was still playing with its
+  // actual listened time so the final song of a session isn't lost from
+  // Wrapped/history. Synchronous save, so it completes before exit.
+  app.on('before-quit', () => {
+    if (currentSongTrack) {
+      const len = currentSongTrack.duration || 0;
+      const heard = currentSongListenedSec;
+      if (len > 0 && (heard >= len * 0.95 || heard >= len - 5)) {
+        recordPlay(currentSongTrack, heard);
+      }
+      currentSongTrack = null;
+      currentSongListenedSec = 0;
+    }
   });
 }

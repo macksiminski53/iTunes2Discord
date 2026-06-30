@@ -36,6 +36,21 @@
     --bad: #E06B4B;
   }
 
+  /* ---- Dynamic theme from album art ----
+     applyThemeFromArtwork() in renderer.js sets --dyn-bg / --dyn-bg-raised
+     (dark tints of the cover) plus --indigo/--sky (a vivid accent). Here we
+     route the background variables to those dynamic values when the
+     'dynamic-theme' class is present. Owner mode takes precedence (its gold
+     theme should never be overridden), so it's excluded. Smooth transitions
+     make the whole window shift color gracefully when the song changes. */
+  body.dynamic-theme:not(.owner-mode) {
+    --bg: var(--dyn-bg, #0F0F14);
+    --bg-raised: var(--dyn-bg-raised, #17171F);
+  }
+  html, body, #hero, .wrapped-card, .lb-row, .pill-btn, .tab-btn {
+    transition: background-color 0.6s ease, border-color 0.6s ease;
+  }
+
   * { box-sizing: border-box; }
 
   html, body {
@@ -53,6 +68,19 @@
     flex-direction: column;
     height: 100vh;
     overflow-y: auto;
+  }
+
+  /* Hide scrollbars everywhere but keep scrolling functional. The content is
+     still scrollable via wheel/trackpad/keyboard -- only the visible bar is
+     removed for a cleaner look. */
+  * {
+    scrollbar-width: none;        /* Firefox */
+    -ms-overflow-style: none;     /* old Edge/IE */
+  }
+  *::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;                /* Chrome/Electron */
   }
 
   #drag-region {
@@ -357,8 +385,152 @@
     outline-offset: 2px;
   }
 
+  /* ---- Animations: small touches to make the app feel alive ---- */
+
+  /* Live status dot gently pulses while music is playing */
+  @keyframes pulse-live {
+    0%, 100% { box-shadow: 0 0 6px var(--good); opacity: 1; }
+    50%      { box-shadow: 0 0 12px var(--good); opacity: 0.65; }
+  }
+  #status-dot.live {
+    animation: pulse-live 2s ease-in-out infinite;
+  }
+
+  /* Hero gradient slowly drifts so the backdrop never feels static */
+  @keyframes hero-drift {
+    0%   { transform: translate3d(0, 0, 0) scale(1); }
+    50%  { transform: translate3d(0, -2%, 0) scale(1.06); }
+    100% { transform: translate3d(0, 0, 0) scale(1); }
+  }
+  #hero::before {
+    animation: hero-drift 14s ease-in-out infinite;
+  }
+
+  /* Album art eases in (fade + slight rise + settle) when a new cover loads */
+  @keyframes art-in {
+    0%   { opacity: 0; transform: scale(0.92) translateY(6px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  #art-img.art-animate, #art-fallback.art-animate {
+    animation: art-in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* The art wrapper lifts a touch on hover for a tactile feel */
+  #art-wrap {
+    transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+                box-shadow 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  #art-wrap:hover {
+    transform: translateY(-3px) scale(1.02);
+    box-shadow: 0 14px 32px rgba(0,0,0,0.5);
+  }
+
+  /* Track name/artist cross-fade when the song changes */
+  @keyframes text-in {
+    0%   { opacity: 0; transform: translateY(4px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  #track-name.text-animate, #track-artist.text-animate {
+    animation: text-in 0.35s ease-out;
+  }
+
+  /* Each view fades/slides in when its tab becomes active */
+  @keyframes view-in {
+    0%   { opacity: 0; transform: translateY(8px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  #view-now-playing, #view-leaderboard, #view-wrapped,
+  #view-share, #view-recs, #view-settings, #view-dev {
+    animation: view-in 0.3s ease-out;
+  }
+
+  /* Buttons gain a quick press-down for physical feedback */
+  .pill-btn, .tab-btn, .win-btn {
+    transition: border-color 0.2s, color 0.2s, background 0.2s, transform 0.08s ease;
+  }
+  .pill-btn:active, .tab-btn:active, .win-btn:active {
+    transform: scale(0.95);
+  }
+
+  /* Update banner slides down when an update is ready */
+  @keyframes banner-drop {
+    0%   { opacity: 0; transform: translateY(-100%); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  #update-banner.show {
+    animation: banner-drop 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* ---- Equalizer bars next to status text (music visualizer feel) ---- */
+  #eq {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 11px;
+    margin-left: 2px;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  #eq i {
+    width: 2.5px;
+    height: 100%;
+    border-radius: 1px;
+    background: var(--good);
+    transform-origin: bottom;
+    transform: scaleY(0.3);
+  }
+  body.is-playing #eq { opacity: 1; }
+  body.is-playing #eq i { animation: eq-bounce 0.9s ease-in-out infinite; }
+  body.is-playing #eq i:nth-child(1) { animation-delay: 0s;    }
+  body.is-playing #eq i:nth-child(2) { animation-delay: 0.18s; }
+  body.is-playing #eq i:nth-child(3) { animation-delay: 0.36s; }
+  body.is-playing #eq i:nth-child(4) { animation-delay: 0.12s; }
+  @keyframes eq-bounce {
+    0%, 100% { transform: scaleY(0.3); }
+    50%      { transform: scaleY(1);   }
+  }
+
+  /* ---- Groove progress bar: shimmer travels along the filled portion ---- */
+  #groove-fill { position: relative; overflow: hidden; }
+  #groove-fill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent);
+    transform: translateX(-100%);
+  }
+  body.is-playing #groove-fill::after {
+    animation: groove-shimmer 2.4s linear infinite;
+  }
+  @keyframes groove-shimmer {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(100%);  }
+  }
+
+  /* ---- Album art gently breathes while playing ---- */
+  @keyframes art-float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-4px); }
+  }
+  body.is-playing #art-wrap:not(:hover) {
+    animation: art-float 4.5s ease-in-out infinite;
+  }
+
+  /* ---- Leaderboard + Wrapped rows stagger in ---- */
+  @keyframes row-in {
+    0%   { opacity: 0; transform: translateX(-10px); }
+    100% { opacity: 1; transform: translateX(0); }
+  }
+  .lb-row.row-animate,
+  .wrapped-rank-row.row-animate {
+    animation: row-in 0.35s ease-out both;
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    * { transition: none !important; }
+    *, *::before, *::after {
+      transition: none !important;
+      animation: none !important;
+    }
   }
 
   /* ---- Tab switcher (Now Playing / Leaderboard) ---- */
@@ -378,7 +550,7 @@
     padding: 7px 0;
     border-radius: 8px;
     cursor: pointer;
-    transition: border-color 0.2s, color 0.2s, background 0.2s;
+    transition: border-color 0.25s ease, color 0.25s ease, background 0.25s ease, transform 0.08s ease;
   }
   .tab-btn.active {
     color: var(--text);
@@ -775,6 +947,67 @@
     width: 100%;
   }
   #wrapped-month-select:focus { border-color: var(--indigo); }
+
+  /* ---- Achievements grid ---- */
+  #achievements-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    gap: 10px;
+  }
+  .ach-badge {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 4px;
+    padding: 10px 6px;
+    border-radius: 12px;
+    background: var(--bg);
+    border: 1px solid var(--divider);
+    cursor: default;
+    transition: transform 0.15s ease, border-color 0.2s ease;
+  }
+  .ach-badge:hover { transform: translateY(-2px); }
+  .ach-badge.unlocked { border-color: var(--indigo); }
+  .ach-badge.locked { opacity: 0.38; filter: grayscale(0.8); }
+  .ach-badge-emoji { font-size: 26px; line-height: 1; }
+  .ach-badge-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.2;
+  }
+  @keyframes badge-pop {
+    0%   { transform: scale(0.4); opacity: 0; }
+    70%  { transform: scale(1.15); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .ach-badge.just-unlocked { animation: badge-pop 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+
+  /* ---- Throwback card ---- */
+  #throwback-content .tb-label {
+    font-size: 13px;
+    color: var(--indigo);
+    font-weight: 700;
+    margin-bottom: 2px;
+  }
+  #throwback-content .tb-date {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  #throwback-content .tb-song {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 13px;
+  }
+  #throwback-content .tb-song .tb-count {
+    margin-left: auto;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
 
   #wrapped-empty {
     text-align: center;
@@ -1203,7 +1436,7 @@
         </div>
       </div>
       <div id="track-meta">
-        <div id="eyebrow"><span id="status-dot"></span><span id="status-text">Checking…</span></div>
+        <div id="eyebrow"><span id="status-dot"></span><span id="status-text">Checking…</span><span id="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span></div>
         <div id="track-name">Nothing playing</div>
         <div id="track-artist">Open Apple Music and press play</div>
       </div>
@@ -1270,6 +1503,14 @@
       <div class="wrapped-card"><div class="wrapped-card-title">Top songs</div><div class="wrapped-rank-list" id="wrapped-top-songs"></div></div>
       <div class="wrapped-card"><div class="wrapped-card-title">Top artists</div><div class="wrapped-rank-list" id="wrapped-top-artists"></div></div>
       <div class="wrapped-card"><div class="wrapped-card-title">Fun facts</div><div class="wrapped-highlight" id="wrapped-fun-facts"></div></div>
+      <div class="wrapped-card" id="throwback-card" style="display:none;">
+        <div class="wrapped-card-title">⏳ On this day</div>
+        <div id="throwback-content"></div>
+      </div>
+      <div class="wrapped-card">
+        <div class="wrapped-card-title">🏅 Achievements <span id="ach-progress" style="color:var(--text-dim);font-weight:600;font-size:12px;"></span></div>
+        <div id="achievements-grid"></div>
+      </div>
     </div>
   </div>
 
@@ -1370,6 +1611,13 @@
           <div class="row-sub">Resets this month's listening time to 0</div>
         </div>
         <button class="pill-btn danger" id="btn-delete-stats">Delete</button>
+      </div>
+      <div class="row" id="row-reset-wrapped">
+        <div>
+          <div class="row-label">My Wrapped &amp; history</div>
+          <div class="row-sub">Clears all local play history used for Wrapped, streaks &amp; recommendations</div>
+        </div>
+        <button class="pill-btn danger" id="btn-reset-wrapped">Reset</button>
       </div>
       <div class="row">
         <div>
