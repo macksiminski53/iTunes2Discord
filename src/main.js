@@ -1451,6 +1451,29 @@ function runApp() {
 
     mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
+    // ---- Mini mode / always-on-top ----
+    // Mini mode shrinks the window to a compact now-playing size and pins it
+    // on top of other windows. Toggling off restores the previous size.
+    let preMiniSize = null;
+    ipcMain.handle('toggle-mini-mode', (_event, on) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return false;
+      if (on) {
+        preMiniSize = mainWindow.getBounds();
+        mainWindow.setAlwaysOnTop(true, 'floating');
+        mainWindow.setSize(320, 200);
+        mainWindow.setMinimumSize(280, 160);
+      } else {
+        mainWindow.setAlwaysOnTop(false);
+        mainWindow.setMinimumSize(320, 400);
+        if (preMiniSize) {
+          mainWindow.setBounds(preMiniSize);
+        } else {
+          mainWindow.setSize(420, 680);
+        }
+      }
+      return on;
+    });
+
     mainWindow.once('ready-to-show', () => {
       mainWindow.show();
       // Restore saved zoom level
@@ -1550,6 +1573,30 @@ function runApp() {
     ownerMode: ownerModeEnabled,
   }));
 
+  // ---- Sleep timer ----
+  // Auto-pauses Discord sync after N minutes (e.g. so your status doesn't
+  // linger overnight). Setting 0 cancels it. Clears the timer if sync is
+  // toggled manually in the meantime.
+  let sleepTimer = null;
+  ipcMain.handle('set-sleep-timer', (_event, minutes) => {
+    if (sleepTimer) { clearTimeout(sleepTimer); sleepTimer = null; }
+    if (!minutes || minutes <= 0) return { active: false };
+    sleepTimer = setTimeout(() => {
+      sleepTimer = null;
+      if (enabled) {
+        enabled = false;
+        if (connected && rpc?.user) rpc.user.clearActivity().catch(() => {});
+        if (username) clearFirestorePresence(username).catch(() => {});
+        updateTrayMenu();
+        pushStateUpdate();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('sleep-timer-fired');
+        }
+      }
+    }, minutes * 60 * 1000);
+    return { active: true, minutes };
+  });
+
   ipcMain.on('toggle-pause', () => {
     enabled = !enabled;
     if (!enabled && connected && rpc?.user) {
@@ -1628,6 +1675,29 @@ function runApp() {
       saveDevMode(true);
       log.info('Dev mode unlocked');
       return { ok: false, reason: 'dev_mode_unlocked' };
+    }
+
+    // ---- Easter egg codes ----
+    // Fun cosmetic codes typed into the username box, like the dev passcode
+    // but purely for surprises -- they never get saved as a name or sent to
+    // Firestore. Each returns an "easter_egg" reason plus an `egg` id the
+    // renderer maps to an effect (confetti, theme flash, message, etc.).
+    const EASTER_EGGS = {
+      'CONFETTI': 'confetti',
+      'PARTY': 'confetti',
+      'RAINBOW': 'rainbow',
+      'MATRIX': 'matrix',
+      'GOLDEN': 'golden',
+      'VAPOR': 'vapor',
+      '808S': 'heartbreak',
+      'YEEZY': 'yeezy',
+      'BARKING': 'barking',
+      'SECRET': 'secret',
+    };
+    const eggKey = trimmed.toUpperCase();
+    if (EASTER_EGGS[eggKey]) {
+      log.info('Easter egg triggered:', eggKey);
+      return { ok: false, reason: 'easter_egg', egg: EASTER_EGGS[eggKey] };
     }
 
     // If they're just re-saving the name they already have, there's
@@ -1902,6 +1972,26 @@ function runApp() {
   // Returns other users currently listening (from Firestore presence),
   // filtering out stale entries (>2 min old) and the current user. Also flags
   // who's listening to the SAME song as you right now.
+  // ---- Play history (timeline + search) ----
+  // Returns recent plays, newest first, optionally filtered by a search query
+  // matching song or artist. Capped so the UI stays snappy.
+  ipcMain.handle('get-history', (_event, query) => {
+    const q = (query || '').trim().toLowerCase();
+    let entries = [...playHistory].reverse(); // newest first
+    if (q) {
+      entries = entries.filter((e) =>
+        (e.name || '').toLowerCase().includes(q) ||
+        (e.artist || '').toLowerCase().includes(q)
+      );
+    }
+    return entries.slice(0, 200).map((e) => ({
+      name: e.name,
+      artist: e.artist,
+      album: e.album,
+      timestamp: e.timestamp,
+    }));
+  });
+
   ipcMain.handle('get-listening-party', async () => {
     try {
       const all = await listPresence();

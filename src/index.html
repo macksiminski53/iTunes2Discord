@@ -454,6 +454,11 @@
   }
 
   /* Update banner slides down when an update is ready */
+  @keyframes paw-float {
+    0%   { transform: translateY(0) rotate(0deg); opacity: 0; }
+    15%  { opacity: 0.9; }
+    100% { transform: translateY(-110vh) rotate(25deg); opacity: 0; }
+  }
   @keyframes banner-drop {
     0%   { opacity: 0; transform: translateY(-100%); }
     100% { opacity: 1; transform: translateY(0); }
@@ -1266,6 +1271,54 @@
   }
   #wrapped-month-select:focus { border-color: var(--indigo); }
 
+  #clock-style-select, #sleep-select {
+    background: var(--bg);
+    border: 1px solid var(--divider);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+  }
+  #clock-style-select:focus, #sleep-select:focus { border-color: var(--indigo); outline: none; }
+
+  /* ---- Clock styles ---- */
+  /* Digital clock (hidden by default; shown in digital mode) */
+  #digital-clock {
+    display: none;
+    font-size: 56px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  #digital-clock-ampm { font-size: 22px; margin-left: 8px; color: var(--text-dim); }
+
+  /* Digital mode: hide the analog SVG + its digital readout, show big digital */
+  body.clock-digital #analog-clock,
+  body.clock-digital #clock-digital { display: none; }
+  body.clock-digital #digital-clock { display: block; }
+
+  /* Minimal mode: analog face/ring/ticks hidden, just hands + center dot */
+  body.clock-minimal .clock-face,
+  body.clock-minimal .clock-ring,
+  body.clock-minimal #clock-ticks,
+  body.clock-minimal #clock-digital { display: none; }
+  body.clock-minimal #analog-clock { filter: none; }
+
+  #sleep-select {
+    background: var(--bg);
+    border: 1px solid var(--divider);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+  }
+  #sleep-select:focus { border-color: var(--indigo); outline: none; }
+
   #accent-input {
     width: 40px;
     height: 30px;
@@ -1318,6 +1371,81 @@
     0%, 100% { transform: scaleY(0.25); }
     50%      { transform: scaleY(1); }
   }
+
+  /* ---- Mini mode: compact always-on-top now-playing ---- */
+  body.mini-mode #tabs,
+  body.mini-mode #timer-wrap,
+  body.mini-mode #groove-wrap,
+  body.mini-mode #fun-buttons,
+  body.mini-mode #fun-output,
+  body.mini-mode #clock-wrap,
+  body.mini-mode #visualizer,
+  body.mini-mode #listening-party,
+  body.mini-mode #view-leaderboard,
+  body.mini-mode #view-wrapped,
+  body.mini-mode #view-share,
+  body.mini-mode #view-recs,
+  body.mini-mode #view-settings,
+  body.mini-mode #view-dev {
+    display: none !important;
+  }
+  body.mini-mode #view-now-playing { display: flex !important; }
+  body.mini-mode #hero { padding: 10px 14px; }
+  body.mini-mode #art-wrap { width: 56px; height: 56px; }
+  body.mini-mode #track-name { font-size: 15px; }
+  body.mini-mode #track-artist { font-size: 12px; }
+
+  /* ---- Listening party feed ---- */
+  #party-feed { display: flex; flex-direction: column; gap: 8px; }
+  .party-empty { font-size: 13px; color: var(--text-dim); }
+  .party-feed-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: var(--bg);
+    border: 1px solid var(--divider);
+    font-size: 13px;
+  }
+  .party-feed-row.same-song { border-color: var(--good); }
+  .party-feed-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--good); box-shadow: 0 0 6px var(--good); flex-shrink: 0;
+  }
+  .party-feed-info { flex: 1; min-width: 0; }
+  .party-feed-user { font-weight: 700; color: var(--text); }
+  .party-feed-song {
+    color: var(--text-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ---- Recent history timeline ---- */
+  #history-search {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--divider);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+    margin-bottom: 10px;
+    -webkit-app-region: no-drag;
+  }
+  #history-search:focus { border-color: var(--indigo); outline: none; }
+  #history-list { display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow-y: auto; }
+  .history-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 4px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--divider);
+  }
+  .history-name { font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+  .history-artist { color: var(--text-dim); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .history-time { color: var(--text-dim); font-size: 11px; flex-shrink: 0; }
+  .history-empty { font-size: 13px; color: var(--text-dim); padding: 8px 0; }
 
   /* ---- Daily goal ring ---- */
   #daily-goal-content {
@@ -1843,6 +1971,7 @@
 
   <div id="drag-region">
     <span class="app-label">MUSIC TO DISCORD</span>
+    <button class="win-btn" id="btn-mini" title="Mini mode (M)" aria-label="Toggle mini mode">&#9711;</button>
     <button class="win-btn" id="btn-min" title="Minimize to tray" aria-label="Minimize to tray">&#8211;</button>
     <button class="win-btn" id="btn-close" title="Close" aria-label="Close window">&#10005;</button>
   </div>
@@ -1907,6 +2036,7 @@
 
     <!-- Analog clock fills the lower area of the Now Playing screen -->
     <div id="clock-wrap">
+      <div id="digital-clock">--:--<span id="digital-clock-ampm"></span></div>
       <svg id="analog-clock" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
         <!-- outer ring -->
         <circle cx="100" cy="100" r="92" class="clock-face"/>
@@ -1974,6 +2104,15 @@
       <div class="wrapped-card"><div class="wrapped-card-title">Top songs</div><div class="wrapped-rank-list" id="wrapped-top-songs"></div></div>
       <div class="wrapped-card"><div class="wrapped-card-title">Top artists</div><div class="wrapped-rank-list" id="wrapped-top-artists"></div></div>
       <div class="wrapped-card"><div class="wrapped-card-title">Fun facts</div><div class="wrapped-highlight" id="wrapped-fun-facts"></div></div>
+      <div class="wrapped-card">
+        <div class="wrapped-card-title">Listening party</div>
+        <div id="party-feed"><div class="party-empty">No one else is listening right now.</div></div>
+      </div>
+      <div class="wrapped-card">
+        <div class="wrapped-card-title">Recent history</div>
+        <input id="history-search" type="text" placeholder="Search your plays…" autocomplete="off" />
+        <div id="history-list"></div>
+      </div>
       <div class="wrapped-card" id="daily-goal-card">
         <div class="wrapped-card-title">Today's listening goal</div>
         <div id="daily-goal-content">
@@ -2121,6 +2260,30 @@
           <div class="row-sub">Skeuomorphic themes — wood, paper, cork &amp; more per tab</div>
         </div>
         <div class="toggle" id="toggle-textures" role="switch" aria-checked="false" tabindex="0"></div>
+      </div>
+      <div class="row">
+        <div>
+          <div class="row-label">Clock style</div>
+          <div class="row-sub">Choose the Now Playing clock face</div>
+        </div>
+        <select id="clock-style-select">
+          <option value="analog">Analog</option>
+          <option value="digital">Digital</option>
+          <option value="minimal">Minimal</option>
+        </select>
+      </div>
+      <div class="row">
+        <div>
+          <div class="row-label">Sleep timer</div>
+          <div class="row-sub" id="sleep-sub">Auto-pause Discord sync after a set time</div>
+        </div>
+        <select id="sleep-select">
+          <option value="0">Off</option>
+          <option value="15">15 min</option>
+          <option value="30">30 min</option>
+          <option value="60">1 hour</option>
+          <option value="120">2 hours</option>
+        </select>
       </div>
       <div class="row">
         <div>

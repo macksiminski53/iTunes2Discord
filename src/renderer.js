@@ -809,6 +809,13 @@ elSetupSubmit.addEventListener('click', () => {
       }
       return;
     }
+    if (reason === 'easter_egg') {
+      // A secret code, not a real name. Close the overlay and play the effect.
+      elSetupInput.value = '';
+      elSetupOverlay.classList.remove('show');
+      triggerEasterEgg(result.egg);
+      return;
+    }
     if (reason === 'taken') {
       showSetupError("That name's already taken — try another.");
     } else if (reason === 'check_failed') {
@@ -1009,6 +1016,8 @@ async function loadWrapped() {
   loadAchievements();
   loadThrowback();
   loadDailyGoal();
+  loadPartyFeed();
+  loadHistory();
 }
 
 async function renderWrapped(monthKey) {
@@ -1116,6 +1125,69 @@ async function loadStreaks() {
 
 // ---- Daily listening goal (loaded as part of Wrapped) ----
 let goalInputWired = false;
+let goalCelebrated = false;
+
+// ---- Listening party feed (loaded as part of Wrapped) ----
+async function loadPartyFeed() {
+  const feed = document.getElementById('party-feed');
+  if (!feed) return;
+  try {
+    const data = await window.musicToDiscord.getListeningParty();
+    if (!data || data.total === 0) {
+      feed.innerHTML = '<div class="party-empty">No one else is listening right now.</div>';
+      return;
+    }
+    // Same-song listeners first
+    const sorted = [...data.listeners].sort((a, b) => (b.sameSong ? 1 : 0) - (a.sameSong ? 1 : 0));
+    feed.innerHTML = sorted.map((l) => `
+      <div class="party-feed-row ${l.sameSong ? 'same-song' : ''}">
+        <span class="party-feed-dot"></span>
+        <div class="party-feed-info">
+          <div class="party-feed-user">${esc(l.username)}${l.sameSong ? ' — same song!' : ''}</div>
+          <div class="party-feed-song">${esc(l.song)}${l.artist ? ' — ' + esc(l.artist) : ''}</div>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    feed.innerHTML = '<div class="party-empty">Listening party unavailable.</div>';
+  }
+}
+
+// ---- Recent history timeline + search (loaded as part of Wrapped) ----
+let historySearchWired = false;
+function formatHistoryTime(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+async function loadHistory(query) {
+  const list = document.getElementById('history-list');
+  if (!list) return;
+  const entries = await window.musicToDiscord.getHistory(query || '');
+  if (!entries || entries.length === 0) {
+    list.innerHTML = '<div class="history-empty">No plays found.</div>';
+  } else {
+    list.innerHTML = entries.map((e) => `
+      <div class="history-row">
+        <span class="history-name">${esc(e.name || 'Unknown')}</span>
+        <span class="history-artist">${esc(e.artist || '')}</span>
+        <span class="history-time">${formatHistoryTime(e.timestamp)}</span>
+      </div>
+    `).join('');
+  }
+  // Wire the search box once.
+  if (!historySearchWired) {
+    historySearchWired = true;
+    const search = document.getElementById('history-search');
+    let debounce = null;
+    search.addEventListener('input', () => {
+      clearTimeout(debounce);
+      debounce = setTimeout(() => loadHistory(search.value), 200);
+    });
+  }
+}
 async function loadDailyGoal() {
   const data = await window.musicToDiscord.getDailyGoal();
   if (!data) return;
@@ -1133,6 +1205,11 @@ async function loadDailyGoal() {
   const statusEl = document.getElementById('goal-status');
   if (pct >= 1) {
     statusEl.textContent = `Goal reached! ${todayMin}m today`;
+    // Celebrate the first time we observe the goal hit in this session.
+    if (!goalCelebrated) {
+      goalCelebrated = true;
+      celebrate();
+    }
   } else {
     statusEl.textContent = `${todayMin}m of ${goalMinutes}m`;
   }
@@ -1212,7 +1289,9 @@ async function loadThrowback() {
 // Refresh achievements live when the main process unlocks one mid-session,
 // so the badge pops in even if the Wrapped tab is already open.
 window.musicToDiscord.onAchievementsChanged(() => {
-  // Only refresh if the wrapped view is currently visible to avoid needless work
+  // A new badge unlocked mid-session -- celebrate, and refresh the grid if
+  // the Wrapped tab is open.
+  celebrate();
   if (document.body.classList.contains('tab-wrapped')) {
     loadAchievements();
   }
@@ -1418,7 +1497,27 @@ window.musicToDiscord.getSettings().then(settings => {
     const ai = document.getElementById('accent-input');
     if (ai) ai.value = settings.accentColor;
   }
+  // Restore clock style (default analog).
+  const clockStyle = (settings && settings.clockStyle) || 'analog';
+  applyClockStyle(clockStyle);
+  const cs = document.getElementById('clock-style-select');
+  if (cs) cs.value = clockStyle;
 });
+
+// Applies a clock face style by toggling body classes.
+function applyClockStyle(style) {
+  document.body.classList.remove('clock-digital', 'clock-minimal');
+  if (style === 'digital') document.body.classList.add('clock-digital');
+  else if (style === 'minimal') document.body.classList.add('clock-minimal');
+}
+(function initClockStylePicker() {
+  const select = document.getElementById('clock-style-select');
+  if (!select) return;
+  select.addEventListener('change', () => {
+    applyClockStyle(select.value);
+    window.musicToDiscord.setSetting('clockStyle', select.value);
+  });
+})();
 
 // Applies a custom accent color by overriding the --indigo/--sky variables.
 // Passing null clears the override (back to theme default).
@@ -1518,6 +1617,14 @@ window.musicToDiscord.onSettingChanged(({ key, value }) => {
     hh = hh % 12 || 12;
     const mm = String(now.getMinutes()).padStart(2, '0');
     digital.textContent = `${hh}:${mm} ${ampm}`;
+
+    // Big digital-mode clock (separate element).
+    const bigDigital = document.getElementById('digital-clock');
+    if (bigDigital) {
+      const ampmSpan = document.getElementById('digital-clock-ampm');
+      bigDigital.firstChild.textContent = `${hh}:${mm}`;
+      if (ampmSpan) ampmSpan.textContent = ampm;
+    }
   }
 
   let rafId = null;
@@ -1735,3 +1842,309 @@ window.musicToDiscord.onSettingChanged(({ key, value }) => {
   refresh();
   setInterval(refresh, 20000);
 })();
+
+// ================================================================
+// CELEBRATION EFFECTS (confetti)
+// ================================================================
+// Lightweight canvas confetti burst -- no library. Used when an achievement
+// unlocks or the daily goal is hit. Respects reduced motion.
+function celebrate() {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9999;';
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+
+  const colors = ['#5865F2', '#FF6FB5', '#E0B84C', '#5FE0A8', '#A77CFF', '#FF8A3D'];
+  const pieces = [];
+  const COUNT = 90;
+  for (let i = 0; i < COUNT; i++) {
+    pieces.push({
+      x: canvas.width / 2 + (Math.random() - 0.5) * 120,
+      y: canvas.height / 3,
+      vx: (Math.random() - 0.5) * 12,
+      vy: Math.random() * -10 - 4,
+      size: 5 + Math.random() * 6,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      rot: Math.random() * Math.PI,
+      vrot: (Math.random() - 0.5) * 0.3,
+      life: 1,
+    });
+  }
+
+  const gravity = 0.35;
+  let frames = 0;
+  function tick() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    let alive = false;
+    for (const p of pieces) {
+      p.vy += gravity;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.rot += p.vrot;
+      p.life -= 0.008;
+      if (p.life > 0 && p.y < canvas.height + 20) {
+        alive = true;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+        ctx.restore();
+      }
+    }
+    frames++;
+    if (alive && frames < 240) {
+      requestAnimationFrame(tick);
+    } else {
+      canvas.remove();
+    }
+  }
+  tick();
+}
+
+// ================================================================
+// KEYBOARD SHORTCUTS
+// ================================================================
+// Quick navigation without the mouse:
+//   1-6  -> switch tabs (Now Playing / Leaderboard / Wrapped / Share / For You / Settings)
+//   M    -> toggle mini always-on-top mode
+//   /    -> focus the history search (when on Wrapped)
+// Ignored while typing in an input so we don't hijack the search box etc.
+(function initShortcuts() {
+  const TAB_KEYS = {
+    '1': 'now-playing',
+    '2': 'leaderboard',
+    '3': 'wrapped',
+    '4': 'share',
+    '5': 'recs',
+    '6': 'settings',
+  };
+  document.addEventListener('keydown', (e) => {
+    // Don't intercept when the user is typing in a field.
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    if (TAB_KEYS[e.key]) {
+      e.preventDefault();
+      showTab(TAB_KEYS[e.key]);
+    } else if (e.key === 'm' || e.key === 'M') {
+      e.preventDefault();
+      toggleMiniMode();
+    } else if (e.key === '/') {
+      // Jump to Wrapped + focus search
+      e.preventDefault();
+      showTab('wrapped');
+      setTimeout(() => {
+        const s = document.getElementById('history-search');
+        if (s) s.focus();
+      }, 100);
+    }
+  });
+})();
+
+// ================================================================
+// MINI MODE
+// ================================================================
+let miniModeOn = false;
+function toggleMiniMode() {
+  miniModeOn = !miniModeOn;
+  document.body.classList.toggle('mini-mode', miniModeOn);
+  window.musicToDiscord.toggleMiniMode(miniModeOn);
+}
+(function wireMiniButton() {
+  const btn = document.getElementById('btn-mini');
+  if (btn) btn.addEventListener('click', toggleMiniMode);
+})();
+
+// ================================================================
+// SLEEP TIMER
+// ================================================================
+(function initSleepTimer() {
+  const select = document.getElementById('sleep-select');
+  const sub = document.getElementById('sleep-sub');
+  if (!select) return;
+  select.addEventListener('change', () => {
+    const minutes = parseInt(select.value, 10);
+    window.musicToDiscord.setSleepTimer(minutes);
+    if (minutes > 0) {
+      sub.textContent = `Sync will pause in ${minutes < 60 ? minutes + ' min' : (minutes / 60) + ' hour' + (minutes > 60 ? 's' : '')}`;
+    } else {
+      sub.textContent = 'Auto-pause Discord sync after a set time';
+    }
+  });
+  // When the timer fires, reset the dropdown and note it.
+  window.musicToDiscord.onSleepTimerFired(() => {
+    select.value = '0';
+    sub.textContent = 'Sleep timer paused your sync. Toggle sync back on anytime.';
+  });
+})();
+
+// ================================================================
+// EASTER EGGS
+// ================================================================
+// Triggered by typing secret codes into the username box (handled in main.js,
+// which returns reason 'easter_egg' + an egg id). Each is purely cosmetic and
+// temporary -- nothing is saved. Codes (case-insensitive):
+//   CONFETTI / PARTY -> confetti burst
+//   RAINBOW          -> cycle the accent through rainbow colors briefly
+//   MATRIX           -> green digital-rain overlay
+//   GOLDEN           -> flash a gold theme
+//   VAPOR            -> vaporwave pink/cyan theme flash
+//   808S             -> moody dark-blue theme flash ("heartbreak")
+//   YEEZY            -> sandy/beige theme flash
+//   BARKING          -> a row of paw prints floats up
+//   SECRET           -> reveals the full list of codes as a toast
+function triggerEasterEgg(egg) {
+  switch (egg) {
+    case 'confetti':
+      celebrate();
+      eggToast('🎉 Party mode!');
+      break;
+    case 'rainbow':
+      rainbowAccent();
+      eggToast('🌈 Taste the rainbow');
+      break;
+    case 'matrix':
+      matrixRain();
+      eggToast('Wake up...');
+      break;
+    case 'golden':
+      themeFlash('#E0B84C', '#1a1608', 'Golden hour ✨');
+      break;
+    case 'vapor':
+      themeFlash('#FF6FB5', '#1a0f1f', 'A E S T H E T I C');
+      break;
+    case 'heartbreak':
+      themeFlash('#4A6FA5', '#0b1018', '808s & Heartbreak');
+      break;
+    case 'yeezy':
+      themeFlash('#C2B280', '#1a1610', 'Yeezy season');
+      break;
+    case 'barking':
+      pawPrints();
+      eggToast('🐾 Woof');
+      break;
+    case 'secret':
+      eggToast('Codes: CONFETTI · RAINBOW · MATRIX · GOLDEN · VAPOR · 808S · YEEZY · BARKING', 6000);
+      break;
+    default:
+      eggToast('???');
+  }
+}
+
+// Small transient toast at the bottom of the window.
+function eggToast(text, ms = 2800) {
+  let toast = document.getElementById('egg-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'egg-toast';
+    toast.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:#fff;padding:10px 18px;border-radius:20px;font-size:13px;font-weight:600;z-index:10000;max-width:80%;text-align:center;pointer-events:none;transition:opacity 0.3s;';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = text;
+  toast.style.opacity = '1';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { toast.style.opacity = '0'; }, ms);
+}
+
+// Briefly flash a theme (accent + bg), then revert to whatever was set.
+function themeFlash(accent, bg, label) {
+  const root = document.documentElement;
+  const prev = {
+    indigo: root.style.getPropertyValue('--indigo'),
+    sky: root.style.getPropertyValue('--sky'),
+    dynBg: root.style.getPropertyValue('--dyn-bg'),
+    dynBgR: root.style.getPropertyValue('--dyn-bg-raised'),
+    dynamic: document.body.classList.contains('dynamic-theme'),
+  };
+  root.style.setProperty('--indigo', accent);
+  root.style.setProperty('--sky', accent);
+  root.style.setProperty('--dyn-bg', bg);
+  root.style.setProperty('--dyn-bg-raised', bg.replace(/^#/, '#1'));
+  document.body.classList.add('dynamic-theme');
+  if (label) eggToast(label);
+  setTimeout(() => {
+    // Revert
+    if (prev.indigo) root.style.setProperty('--indigo', prev.indigo); else root.style.removeProperty('--indigo');
+    if (prev.sky) root.style.setProperty('--sky', prev.sky); else root.style.removeProperty('--sky');
+    if (prev.dynBg) root.style.setProperty('--dyn-bg', prev.dynBg); else root.style.removeProperty('--dyn-bg');
+    if (prev.dynBgR) root.style.setProperty('--dyn-bg-raised', prev.dynBgR); else root.style.removeProperty('--dyn-bg-raised');
+    if (!prev.dynamic) document.body.classList.remove('dynamic-theme');
+  }, 6000);
+}
+
+// Cycle the accent through the rainbow for a few seconds.
+function rainbowAccent() {
+  const root = document.documentElement;
+  let hue = 0;
+  const start = Date.now();
+  const iv = setInterval(() => {
+    hue = (hue + 8) % 360;
+    const c = `hsl(${hue}, 80%, 60%)`;
+    root.style.setProperty('--indigo', c);
+    root.style.setProperty('--sky', c);
+    if (Date.now() - start > 5000) {
+      clearInterval(iv);
+      root.style.removeProperty('--indigo');
+      root.style.removeProperty('--sky');
+    }
+  }, 60);
+}
+
+// Matrix-style green digital rain overlay for a few seconds.
+function matrixRain() {
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9998;';
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  const cols = Math.floor(canvas.width / 14);
+  const drops = new Array(cols).fill(0).map(() => Math.random() * -50);
+  const chars = 'アイウエオカキ0123456789ABCDEF';
+  const start = Date.now();
+  function draw() {
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#0F0';
+    ctx.font = '14px monospace';
+    for (let i = 0; i < drops.length; i++) {
+      const ch = chars[Math.floor(Math.random() * chars.length)];
+      ctx.fillText(ch, i * 14, drops[i] * 14);
+      if (drops[i] * 14 > canvas.height && Math.random() > 0.975) drops[i] = 0;
+      drops[i]++;
+    }
+    if (Date.now() - start < 5000) {
+      requestAnimationFrame(draw);
+    } else {
+      canvas.style.transition = 'opacity 0.6s';
+      canvas.style.opacity = '0';
+      setTimeout(() => canvas.remove(), 700);
+    }
+  }
+  draw();
+}
+
+// Paw prints floating up from the bottom.
+function pawPrints() {
+  const container = document.createElement('div');
+  container.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:9998;overflow:hidden;';
+  document.body.appendChild(container);
+  for (let i = 0; i < 14; i++) {
+    const paw = document.createElement('div');
+    paw.textContent = '🐾';
+    const left = Math.random() * 100;
+    const size = 18 + Math.random() * 24;
+    const dur = 2.5 + Math.random() * 2;
+    const delay = Math.random() * 1.5;
+    paw.style.cssText = `position:absolute;left:${left}%;bottom:-40px;font-size:${size}px;opacity:0.9;animation:paw-float ${dur}s ease-in ${delay}s forwards;`;
+    container.appendChild(paw);
+  }
+  setTimeout(() => container.remove(), 5000);
+}
