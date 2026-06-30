@@ -48,6 +48,9 @@ function runApp() {
     unbanUsername,
     isUsernameBanned,
     listBannedUsernames,
+    setPresence: setFirestorePresence,
+    clearPresence: clearFirestorePresence,
+    listPresence,
   } = require('./firestore');
 
   // ---- CONFIG ----
@@ -195,6 +198,17 @@ function runApp() {
     { id: 'streak_7',    emoji: '🔥', title: 'Week Strong',       desc: '7-day listening streak.',            check: (s) => s.longestStreak >= 7 },
     { id: 'streak_30',   emoji: '🔥', title: 'Unstoppable',       desc: '30-day listening streak.',           check: (s) => s.longestStreak >= 30 },
     { id: 'marathon',    emoji: '🏃', title: 'Marathoner',        desc: 'Played 50 songs in a single day.',   check: (s) => s.maxDayCount >= 50 },
+    { id: 'plays_2000',  emoji: '🚀', title: 'Beyond Obsessed',   desc: 'Played 2,000 songs.',                check: (s) => s.totalPlays >= 2000 },
+    { id: 'plays_5000',  emoji: '🌠', title: 'Living Legend',      desc: 'Played 5,000 songs.',                check: (s) => s.totalPlays >= 5000 },
+    { id: 'hours_250',   emoji: '🪐', title: 'Time Traveler',      desc: 'Listened for 250 hours total.',      check: (s) => s.totalHours >= 250 },
+    { id: 'hours_500',   emoji: '♾️', title: 'Eternal Listener',  desc: 'Listened for 500 hours total.',      check: (s) => s.totalHours >= 500 },
+    { id: 'weekend',     emoji: '🛋️', title: 'Weekend Warrior',   desc: 'Played 30+ songs on a weekend day.', check: (s) => s.maxWeekendDayCount >= 30 },
+    { id: 'explorer_100',emoji: '🗺️', title: 'Globetrotter',      desc: 'Played 100 different artists.',       check: (s) => s.uniqueArtists >= 100 },
+    { id: 'devoted_50',  emoji: '💞', title: 'Obsessed',           desc: 'Played one song 50+ times.',         check: (s) => s.topSongCount >= 50 },
+    { id: 'superfan_100',emoji: '🌟', title: 'Ultra Fan',          desc: 'Played one artist 100+ times.',      check: (s) => s.topArtistCount >= 100 },
+    { id: 'streak_14',   emoji: '🔥', title: 'Two Weeks Hot',      desc: '14-day listening streak.',           check: (s) => s.longestStreak >= 14 },
+    { id: 'streak_100',  emoji: '💯', title: 'Centurion Streak',   desc: '100-day listening streak.',          check: (s) => s.longestStreak >= 100 },
+    { id: 'variety',     emoji: '🎲', title: 'Variety Hour',       desc: 'Played 20 different songs in a day.', check: (s) => s.maxDayUniqueSongs >= 20 },
   ];
 
   function loadUnlockedAchievements() {
@@ -228,6 +242,8 @@ function runApp() {
     const artistCounts = {};
     const songCounts = {};
     const dayCounts = {};
+    const weekendDayCounts = {};       // plays on Sat/Sun days
+    const daySongSets = {};            // unique songs per day
 
     for (const e of playHistory) {
       totalSeconds += e.duration || 0;
@@ -242,12 +258,23 @@ function runApp() {
       songCounts[songKey] = (songCounts[songKey] || 0) + 1;
       const dayKey = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
       dayCounts[dayKey] = (dayCounts[dayKey] || 0) + 1;
+
+      // Weekend = Saturday (6) or Sunday (0)
+      const dow = d.getDay();
+      if (dow === 0 || dow === 6) {
+        weekendDayCounts[dayKey] = (weekendDayCounts[dayKey] || 0) + 1;
+      }
+      // Unique songs per day
+      if (!daySongSets[dayKey]) daySongSets[dayKey] = new Set();
+      daySongSets[dayKey].add(songKey);
     }
 
     const topArtistCount = Object.values(artistCounts).reduce((m, c) => Math.max(m, c), 0);
     const topSongCount = Object.values(songCounts).reduce((m, c) => Math.max(m, c), 0);
     const maxDayCount = Object.values(dayCounts).reduce((m, c) => Math.max(m, c), 0);
     const uniqueArtists = Object.keys(artistCounts).length;
+    const maxWeekendDayCount = Object.values(weekendDayCounts).reduce((m, c) => Math.max(m, c), 0);
+    const maxDayUniqueSongs = Object.values(daySongSets).reduce((m, set) => Math.max(m, set.size), 0);
 
     const days = new Set(Object.keys(dayCounts).map((k) => {
       const [y, m, d] = k.split('-').map(Number);
@@ -282,6 +309,8 @@ function runApp() {
       uniqueArtists,
       currentStreak,
       longestStreak,
+      maxWeekendDayCount,
+      maxDayUniqueSongs,
     };
   }
 
@@ -290,7 +319,7 @@ function runApp() {
       const { Notification } = require('electron');
       if (!Notification.isSupported()) return;
       const n = new Notification({
-        title: `${ach.emoji} Achievement Unlocked!`,
+        title: 'Achievement Unlocked!',
         body: `${ach.title} — ${ach.desc}`,
         icon: path.join(__dirname, '..', 'assets', 'tray-icon.png'),
       });
@@ -1196,6 +1225,8 @@ function runApp() {
           // Reflect "stopped" in the channel embed too, so it doesn't sit
           // there forever claiming the last song is still playing.
           clearNowPlayingEmbed().catch((e) => log.warn('Clear embed failed:', e.message));
+          // Remove our listening presence so we don't show as "still playing".
+          if (username) clearFirestorePresence(username).catch(() => {});
         }
         pushStateUpdate(track);
       } else {
@@ -1306,6 +1337,19 @@ function runApp() {
 
           updateTrayTooltip(`${track.state === 'playing' ? '▶' : '⏸'} ${track.name} — ${track.artist}`);
           log.info('Now:', track.state, track.name, '-', track.artist);
+
+          // Update listening presence (for the "listening party" feature).
+          // Only when actually playing and the user has a username + sync on.
+          // Fire-and-forget; failures (e.g. Firestore blocked on school wifi)
+          // are silently ignored so they never disrupt playback.
+          if (isNewEvent && username && enabled) {
+            if (track.state === 'playing') {
+              setFirestorePresence(username, { song: track.name, artist: track.artist })
+                .catch(() => {});
+            } else {
+              clearFirestorePresence(username).catch(() => {});
+            }
+          }
         }
         lastPosition = track.position;
         lastRawTrack = track;
@@ -1850,6 +1894,58 @@ function runApp() {
     };
   });
 
+  // ---- Daily listening goal ----
+  // Returns how many seconds the user has listened TODAY (from play history)
+  // plus their configured daily goal in minutes (default 60). The renderer
+  // draws a progress ring from this.
+  // ---- Listening party ----
+  // Returns other users currently listening (from Firestore presence),
+  // filtering out stale entries (>2 min old) and the current user. Also flags
+  // who's listening to the SAME song as you right now.
+  ipcMain.handle('get-listening-party', async () => {
+    try {
+      const all = await listPresence();
+      const now = Date.now();
+      const STALE_MS = 2 * 60 * 1000; // 2 minutes
+      const mySong = currentSongTrack ? currentSongTrack.name : null;
+      const myArtist = currentSongTrack ? currentSongTrack.artist : null;
+
+      const active = all
+        .filter((p) => p.username && p.username !== username)
+        .filter((p) => {
+          if (!p.updatedAt) return false;
+          const ts = new Date(p.updatedAt).getTime();
+          return now - ts < STALE_MS;
+        })
+        .map((p) => ({
+          username: p.username,
+          song: p.song || '',
+          artist: p.artist || '',
+          sameSong: !!(mySong && p.song === mySong && p.artist === myArtist),
+        }));
+
+      return { listeners: active, total: active.length };
+    } catch (e) {
+      // Firestore blocked/unreachable -> just report nobody, no error to user.
+      return { listeners: [], total: 0, unavailable: true };
+    }
+  });
+
+  ipcMain.handle('get-daily-goal', () => {
+    const now = new Date();
+    const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+    let todaySeconds = 0;
+    for (const e of playHistory) {
+      const d = new Date(e.timestamp);
+      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      if (key === todayKey) todaySeconds += e.duration || 0;
+    }
+    const goalMinutes = (appSettings && typeof appSettings.dailyGoalMinutes === 'number')
+      ? appSettings.dailyGoalMinutes
+      : 60;
+    return { todaySeconds, goalMinutes };
+  });
+
   ipcMain.handle('get-streaks', () => {
     if (playHistory.length === 0) return { current: 0, longest: 0, todayCount: 0 };
 
@@ -2368,5 +2464,7 @@ function runApp() {
       currentSongTrack = null;
       currentSongListenedSec = 0;
     }
+    // Remove our listening presence so we don't linger as "still playing".
+    if (username) clearFirestorePresence(username).catch(() => {});
   });
 }

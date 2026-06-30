@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
 
   // Achievements
   getAchievements: () => ipcRenderer.invoke('get-achievements'),
+  getDailyGoal: () => ipcRenderer.invoke('get-daily-goal'),
+  getListeningParty: () => ipcRenderer.invoke('get-listening-party'),
   onAchievementsChanged: (callback) => {
     ipcRenderer.on('achievements-changed', () => callback());
   },

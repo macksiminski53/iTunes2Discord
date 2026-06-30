@@ -58,7 +58,8 @@
     padding: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    font-family: "Inter", "Helvetica Neue", "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, Arial, sans-serif;
+    letter-spacing: -0.01em;
     overflow: hidden;
     user-select: none;
   }
@@ -526,6 +527,165 @@
     animation: row-in 0.35s ease-out both;
   }
 
+  /* ====================================================================
+     SKEUOMORPHIC TAB TEXTURES (toggle in Settings -> body.textures-on)
+     All textures are pure CSS -- layered gradients/shadows, no images to
+     bundle. Each is scoped to its tab so only the active screen is themed.
+     ==================================================================== */
+
+  /* Leaderboard -> WOOD: warm grain via repeating linear gradients */
+  body.textures-on.tab-leaderboard #view-leaderboard {
+    background-color: #5a3a1e;
+    background-image:
+      repeating-linear-gradient(90deg,
+        rgba(0,0,0,0.10) 0px, rgba(0,0,0,0.10) 2px,
+        rgba(255,255,255,0.03) 2px, rgba(255,255,255,0.03) 4px),
+      repeating-linear-gradient(0deg,
+        rgba(80,45,20,0.6) 0px, rgba(110,70,35,0.6) 14px, rgba(70,40,18,0.6) 28px);
+    box-shadow: inset 0 0 40px rgba(0,0,0,0.5);
+  }
+  body.textures-on.tab-leaderboard .lb-row,
+  body.textures-on.tab-leaderboard #battle-card {
+    background: linear-gradient(180deg, rgba(120,78,40,0.92), rgba(92,58,28,0.92));
+    border: 1px solid rgba(40,22,8,0.8);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.12);
+    color: #f3e6d2;
+  }
+
+  /* Wrapped -> PAPER / NOTEBOOK: cream sheet with ruled lines + margin */
+  body.textures-on.tab-wrapped #view-wrapped {
+    background-color: #f7f3e6;
+    background-image:
+      linear-gradient(90deg, transparent 38px, rgba(220,90,90,0.4) 38px, rgba(220,90,90,0.4) 40px, transparent 40px),
+      repeating-linear-gradient(0deg,
+        transparent 0px, transparent 27px, rgba(80,120,200,0.25) 27px, rgba(80,120,200,0.25) 28px);
+    color: #2a2a2a;
+  }
+  body.textures-on.tab-wrapped .wrapped-card {
+    background: rgba(255,255,255,0.75);
+    border: 1px solid rgba(0,0,0,0.12);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    color: #2a2a2a;
+  }
+  /* All Wrapped text + cards go dark-on-light so it's readable on paper */
+  body.textures-on.tab-wrapped .wrapped-card-title,
+  body.textures-on.tab-wrapped .wrapped-rank-name,
+  body.textures-on.tab-wrapped .wrapped-stat-value,
+  body.textures-on.tab-wrapped #wrapped-empty,
+  body.textures-on.tab-wrapped #wrapped-month-select { color: #1a1a1a; }
+  body.textures-on.tab-wrapped .wrapped-stat-label,
+  body.textures-on.tab-wrapped .wrapped-rank-sub,
+  body.textures-on.tab-wrapped .tb-date { color: #555; }
+  /* The dark stat tiles + rank rows need light backgrounds on paper */
+  body.textures-on.tab-wrapped .wrapped-stat,
+  body.textures-on.tab-wrapped .wrapped-rank-row,
+  body.textures-on.tab-wrapped #throwback-content,
+  body.textures-on.tab-wrapped .ach-badge {
+    background: rgba(255,255,255,0.65);
+    border-color: rgba(0,0,0,0.12);
+    color: #1a1a1a;
+  }
+  body.textures-on.tab-wrapped .wrapped-rank-count,
+  body.textures-on.tab-wrapped .tb-song,
+  body.textures-on.tab-wrapped #ach-progress { color: #555; }
+  body.textures-on.tab-wrapped #wrapped-month-select {
+    background: rgba(255,255,255,0.8);
+    border-color: rgba(0,0,0,0.2);
+  }
+
+  /* Share -> VINTAGE TRAVEL POSTCARD: linen-sky gradient with diagonal
+     sunburst rays and a white deckle border, evoking a "Greetings from..."
+     postcard. All CSS -- no image used. */
+  body.textures-on.tab-share #view-share {
+    background-color: #6fb7d4;
+    background-image:
+      /* diagonal sunburst rays (orange + gold), fanning from lower-left */
+      repeating-linear-gradient(48deg,
+        rgba(247,148,42,0.0) 0px, rgba(247,148,42,0.0) 46px,
+        rgba(247,148,42,0.55) 46px, rgba(247,148,42,0.55) 70px,
+        rgba(255,205,80,0.55) 70px, rgba(255,205,80,0.55) 94px,
+        rgba(247,148,42,0.0) 94px, rgba(247,148,42,0.0) 150px),
+      /* sky: warm linen blue, lighter at top */
+      linear-gradient(180deg, #8fd0e6 0%, #6fb7d4 45%, #7c9fd0 100%),
+      /* faint linen weave texture */
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 3px);
+    border: 12px solid #fbf7ec;
+    box-shadow:
+      inset 0 0 0 2px rgba(0,0,0,0.12),
+      inset 0 0 60px rgba(0,0,0,0.15);
+    position: relative;
+  }
+  /* Subtle vignette + grain so it reads as aged print, not flat digital */
+  body.textures-on.tab-share #view-share::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.18) 100%);
+    pointer-events: none;
+    mix-blend-mode: multiply;
+  }
+  /* The share card itself becomes a bright postcard panel */
+  body.textures-on.tab-share #share-card {
+    background: rgba(255,253,245,0.92);
+    border: 1px solid rgba(0,0,0,0.15);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+    color: #1a2a35;
+  }
+  body.textures-on.tab-share #share-card-name,
+  body.textures-on.tab-share #share-card-artist,
+  body.textures-on.tab-share #share-card-label,
+  body.textures-on.tab-share #share-card-app,
+  body.textures-on.tab-share #share-card-album { color: #1a2a35; }
+  body.textures-on.tab-share #share-copy-btn,
+  body.textures-on.tab-share #share-copy-status {
+    color: #fbf7ec;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  }
+
+  /* For You -> BULLETIN BOARD: cork texture with a wooden frame */
+  body.textures-on.tab-recs #view-recs {
+    background-color: #c8a063;
+    background-image:
+      radial-gradient(rgba(120,80,40,0.4) 1px, transparent 1.5px),
+      radial-gradient(rgba(90,60,30,0.3) 1px, transparent 1.5px);
+    background-size: 6px 6px, 9px 9px;
+    background-position: 0 0, 3px 4px;
+    border: 10px solid #6e4a2b;
+    box-shadow: inset 0 0 30px rgba(0,0,0,0.35);
+  }
+  /* Recommendation rows become white "pinned notes" with dark text */
+  body.textures-on.tab-recs .rec-row {
+    background: #fffdf5;
+    border: 1px solid rgba(0,0,0,0.15);
+    box-shadow: 0 3px 6px rgba(0,0,0,0.3);
+    color: #1a1a1a;
+  }
+  body.textures-on.tab-recs .rec-name { color: #1a1a1a; }
+  body.textures-on.tab-recs .rec-artist { color: #555; }
+  body.textures-on.tab-recs .rec-icon { color: #888; }
+  /* Empty-state text on the board goes dark for contrast */
+  body.textures-on.tab-recs #recs-empty { color: #3a2410; }
+
+  /* Settings -> FACTORY / INDUSTRIAL: brushed steel plate with rivets */
+  body.textures-on.tab-settings #view-settings {
+    background-color: #3a3f44;
+    background-image:
+      repeating-linear-gradient(90deg,
+        rgba(255,255,255,0.04) 0px, rgba(255,255,255,0.04) 1px,
+        rgba(0,0,0,0.06) 1px, rgba(0,0,0,0.06) 3px),
+      radial-gradient(circle at 14px 14px, rgba(0,0,0,0.5) 2.5px, transparent 3px),
+      radial-gradient(circle at calc(100% - 14px) 14px, rgba(0,0,0,0.5) 2.5px, transparent 3px);
+    box-shadow: inset 0 0 50px rgba(0,0,0,0.5);
+  }
+  body.textures-on.tab-settings .row {
+    background: linear-gradient(180deg, rgba(70,76,82,0.7), rgba(50,55,60,0.7));
+    border: 1px solid rgba(0,0,0,0.4);
+    border-radius: 8px;
+    padding: 12px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       transition: none !important;
@@ -561,7 +721,8 @@
   #view-now-playing {
     display: flex;
     flex-direction: column;
-    flex-shrink: 0;
+    flex: 1;
+    min-height: 0;
   }
   #view-leaderboard {
     display: none;
@@ -586,6 +747,163 @@
     margin-bottom: 10px;
     text-align: center;
   }
+
+  /* ---- Fun buttons (Now Playing) ---- */
+  #fun-buttons {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    padding: 4px 28px 0;
+    -webkit-app-region: no-drag;
+  }
+  .fun-btn {
+    flex: 1;
+    max-width: 120px;
+    background: var(--bg-raised);
+    border: 1px solid var(--divider);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 0;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, transform 0.08s ease;
+  }
+  .fun-btn:hover { border-color: var(--indigo); }
+  .fun-btn:active { transform: scale(0.94); }
+
+  #fun-output {
+    text-align: center;
+    padding: 0 28px;
+    margin-top: 10px;
+  }
+  #fun-output .fun-quote {
+    font-size: 15px;
+    font-weight: 700;
+    font-style: italic;
+    color: var(--text);
+    line-height: 1.4;
+    animation: text-in 0.4s ease-out;
+  }
+  #fun-output .fun-art-canvas {
+    width: 100%;
+    max-width: 280px;
+    height: 140px;
+    border-radius: 12px;
+    animation: art-in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* ---- Analog clock (fills lower Now Playing area) ---- */
+  #clock-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 16px 0 24px;
+    min-height: 0;
+  }
+  #analog-clock {
+    width: 180px;
+    height: 180px;
+    max-width: 55vw;
+    max-height: 55vw;
+    filter: drop-shadow(0 6px 18px rgba(0,0,0,0.45));
+  }
+  .clock-face { fill: var(--bg-raised); }
+  .clock-ring { fill: none; stroke: var(--indigo); stroke-width: 3; opacity: 0.7; }
+  .clock-tick { stroke: var(--text-dim); stroke-width: 2; }
+  .clock-tick.major { stroke: var(--text); stroke-width: 3; }
+  .clock-hand {
+    stroke-linecap: round;
+  }
+  .clock-hand-hour   { stroke: var(--text);   stroke-width: 5; }
+  .clock-hand-minute { stroke: var(--text);   stroke-width: 3.5; }
+  .clock-hand-second { stroke: var(--indigo); stroke-width: 2; }
+  .clock-center { fill: var(--indigo); }
+  #clock-digital {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  #battle-card {
+    background: var(--bg-raised);
+    border: 1px solid var(--divider);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+  }
+  .battle-title {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+  .battle-pick-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .battle-pick-label { font-size: 12px; color: var(--text-dim); }
+  #battle-select {
+    flex: 1;
+    -webkit-app-region: no-drag;
+    background: var(--bg);
+    border: 1px solid var(--divider);
+    color: var(--text);
+    font-size: 12px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    outline: none;
+    cursor: pointer;
+  }
+  #battle-select:focus { border-color: var(--indigo); }
+
+  .battle-vs {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .battle-side { flex: 1; text-align: center; }
+  .battle-side.me .battle-name { color: var(--indigo); }
+  .battle-name {
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .battle-time { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+  .battle-vs-divider {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .battle-bar {
+    height: 10px;
+    border-radius: 5px;
+    overflow: hidden;
+    display: flex;
+    background: var(--bg);
+    border: 1px solid var(--divider);
+  }
+  .battle-bar-me { background: var(--indigo); transition: width 0.6s cubic-bezier(0.22,1,0.36,1); }
+  .battle-bar-them { background: var(--magenta); transition: width 0.6s cubic-bezier(0.22,1,0.36,1); }
+  .battle-verdict {
+    text-align: center;
+    font-size: 13px;
+    font-weight: 700;
+    margin-top: 10px;
+  }
+  .battle-verdict.winning { color: var(--good); }
+  .battle-verdict.losing { color: var(--bad); }
+  .battle-verdict.tied { color: var(--text-dim); }
 
   #leaderboard-list {
     display: flex;
@@ -948,6 +1266,108 @@
   }
   #wrapped-month-select:focus { border-color: var(--indigo); }
 
+  #accent-input {
+    width: 40px;
+    height: 30px;
+    border: 1px solid var(--divider);
+    border-radius: 6px;
+    background: none;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    padding: 2px;
+  }
+
+  /* ---- Listening party indicator ---- */
+  #listening-party {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #listening-party .party-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--good);
+    box-shadow: 0 0 6px var(--good);
+    flex-shrink: 0;
+  }
+  #listening-party.same-song { color: var(--good); font-weight: 600; }
+
+  /* ---- Mini visualizer (under track info, only animates while playing) ---- */
+  #visualizer {
+    display: none;
+    align-items: flex-end;
+    gap: 3px;
+    height: 22px;
+    margin-top: 10px;
+  }
+  body.is-playing #visualizer { display: flex; }
+  #visualizer span {
+    flex: 1;
+    max-width: 5px;
+    background: linear-gradient(180deg, var(--indigo), var(--sky, var(--indigo)));
+    border-radius: 2px;
+    height: 30%;
+    transform-origin: bottom;
+    animation: viz-bounce 1s ease-in-out infinite;
+  }
+  @keyframes viz-bounce {
+    0%, 100% { transform: scaleY(0.25); }
+    50%      { transform: scaleY(1); }
+  }
+
+  /* ---- Daily goal ring ---- */
+  #daily-goal-content {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+  #goal-ring { flex-shrink: 0; transform: rotate(-90deg); }
+  .goal-ring-bg {
+    fill: none;
+    stroke: var(--divider);
+    stroke-width: 9;
+  }
+  .goal-ring-fill {
+    fill: none;
+    stroke: var(--indigo);
+    stroke-width: 9;
+    stroke-linecap: round;
+    stroke-dasharray: 326.7;
+    stroke-dashoffset: 326.7;
+    transition: stroke-dashoffset 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  #goal-ring-pct {
+    transform: rotate(90deg);
+    transform-origin: 60px 60px;
+    fill: var(--text);
+    font-size: 22px;
+    font-weight: 800;
+  }
+  #goal-info { flex: 1; }
+  #goal-status { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+  .goal-edit-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  #goal-input {
+    width: 60px;
+    background: var(--bg);
+    border: 1px solid var(--divider);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-size: 12px;
+    -webkit-app-region: no-drag;
+  }
+  #goal-input:focus { border-color: var(--indigo); outline: none; }
+
   /* ---- Achievements grid ---- */
   #achievements-grid {
     display: grid;
@@ -970,7 +1390,22 @@
   .ach-badge:hover { transform: translateY(-2px); }
   .ach-badge.unlocked { border-color: var(--indigo); }
   .ach-badge.locked { opacity: 0.38; filter: grayscale(0.8); }
-  .ach-badge-emoji { font-size: 26px; line-height: 1; }
+  .ach-badge-mono {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    font-weight: 800;
+    color: #fff;
+    background: var(--indigo);
+  }
+  .ach-badge.locked .ach-badge-mono {
+    background: var(--divider);
+    color: var(--text-dim);
+  }
   .ach-badge-title {
     font-size: 10px;
     font-weight: 700;
@@ -1413,7 +1848,7 @@
   </div>
 
   <div id="update-banner">
-    <div id="update-banner-text">⬇ Downloading update…</div>
+    <div id="update-banner-text">Downloading update…</div>
     <button id="update-banner-btn" disabled>Install &amp; Restart</button>
   </div>
 
@@ -1439,6 +1874,8 @@
         <div id="eyebrow"><span id="status-dot"></span><span id="status-text">Checking…</span><span id="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span></div>
         <div id="track-name">Nothing playing</div>
         <div id="track-artist">Open Apple Music and press play</div>
+        <div id="listening-party" style="display:none;"></div>
+        <div id="visualizer" aria-hidden="true"></div>
       </div>
     </div>
 
@@ -1458,10 +1895,44 @@
         <span id="time-remaining">&minus;0:00</span>
       </div>
     </div>
+
+    <!-- Fun buttons: each surprises with something different -->
+    <div id="fun-buttons">
+      <button class="fun-btn" id="fun-btn-quote">Ye-ism</button>
+      <button class="fun-btn" id="fun-btn-shuffle">Shuffle</button>
+      <button class="fun-btn" id="fun-btn-art">Art</button>
+      <button class="fun-btn" id="fun-btn-daily">Daily</button>
+    </div>
+    <div id="fun-output"></div>
+
+    <!-- Analog clock fills the lower area of the Now Playing screen -->
+    <div id="clock-wrap">
+      <svg id="analog-clock" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+        <!-- outer ring -->
+        <circle cx="100" cy="100" r="92" class="clock-face"/>
+        <circle cx="100" cy="100" r="92" class="clock-ring"/>
+        <!-- hour ticks (drawn by JS) -->
+        <g id="clock-ticks"></g>
+        <!-- hands -->
+        <line id="hand-hour"   x1="100" y1="100" x2="100" y2="55"  class="clock-hand clock-hand-hour"/>
+        <line id="hand-minute" x1="100" y1="100" x2="100" y2="35"  class="clock-hand clock-hand-minute"/>
+        <line id="hand-second" x1="100" y1="100" x2="100" y2="28"  class="clock-hand clock-hand-second"/>
+        <circle cx="100" cy="100" r="5" class="clock-center"/>
+      </svg>
+      <div id="clock-digital">--:--</div>
+    </div>
   </div>
 
   <div id="view-leaderboard">
     <div id="leaderboard-wrap">
+      <div id="battle-card" style="display:none;">
+        <div class="battle-title">Listening Battle</div>
+        <div class="battle-pick-row">
+          <span class="battle-pick-label">Challenge:</span>
+          <select id="battle-select"></select>
+        </div>
+        <div id="battle-result"></div>
+      </div>
       <div id="leaderboard-month"></div>
       <div id="leaderboard-list"></div>
       <div id="leaderboard-empty">No one's on the board yet this month — be the first!</div>
@@ -1484,7 +1955,7 @@
         </div>
       </div>
       <div class="wrapped-card">
-        <div class="wrapped-card-title">🔥 Listening streak</div>
+        <div class="wrapped-card-title">Listening streak</div>
         <div class="streak-row">
           <div class="streak-stat">
             <div class="streak-value streak-fire" id="streak-current">—</div>
@@ -1503,12 +1974,30 @@
       <div class="wrapped-card"><div class="wrapped-card-title">Top songs</div><div class="wrapped-rank-list" id="wrapped-top-songs"></div></div>
       <div class="wrapped-card"><div class="wrapped-card-title">Top artists</div><div class="wrapped-rank-list" id="wrapped-top-artists"></div></div>
       <div class="wrapped-card"><div class="wrapped-card-title">Fun facts</div><div class="wrapped-highlight" id="wrapped-fun-facts"></div></div>
+      <div class="wrapped-card" id="daily-goal-card">
+        <div class="wrapped-card-title">Today's listening goal</div>
+        <div id="daily-goal-content">
+          <svg id="goal-ring" viewBox="0 0 120 120" width="120" height="120">
+            <circle class="goal-ring-bg" cx="60" cy="60" r="52"/>
+            <circle class="goal-ring-fill" id="goal-ring-fill" cx="60" cy="60" r="52"/>
+            <text id="goal-ring-pct" x="60" y="66" text-anchor="middle">0%</text>
+          </svg>
+          <div id="goal-info">
+            <div id="goal-status">0m of 60m</div>
+            <div class="goal-edit-row">
+              <span>Goal:</span>
+              <input id="goal-input" type="number" min="5" max="600" step="5" value="60" />
+              <span>min</span>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="wrapped-card" id="throwback-card" style="display:none;">
-        <div class="wrapped-card-title">⏳ On this day</div>
+        <div class="wrapped-card-title">On this day</div>
         <div id="throwback-content"></div>
       </div>
       <div class="wrapped-card">
-        <div class="wrapped-card-title">🏅 Achievements <span id="ach-progress" style="color:var(--text-dim);font-weight:600;font-size:12px;"></span></div>
+        <div class="wrapped-card-title">Achievements <span id="ach-progress" style="color:var(--text-dim);font-weight:600;font-size:12px;"></span></div>
         <div id="achievements-grid"></div>
       </div>
     </div>
@@ -1530,7 +2019,7 @@
         <span id="share-card-album"></span>
       </div>
     </div>
-    <button id="share-copy-btn">📋 Copy as image</button>
+    <button id="share-copy-btn">Copy as image</button>
     <div id="share-copy-status"></div>
   </div>
 
@@ -1626,6 +2115,23 @@
         </div>
         <div class="toggle on" id="toggle-sync" role="switch" aria-checked="true" tabindex="0"></div>
       </div>
+      <div class="row">
+        <div>
+          <div class="row-label">Tab textures</div>
+          <div class="row-sub">Skeuomorphic themes — wood, paper, cork &amp; more per tab</div>
+        </div>
+        <div class="toggle" id="toggle-textures" role="switch" aria-checked="false" tabindex="0"></div>
+      </div>
+      <div class="row">
+        <div>
+          <div class="row-label">Accent color</div>
+          <div class="row-sub">Custom highlight color for the whole app</div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input type="color" id="accent-input" value="#5865F2" />
+          <button class="pill-btn" id="accent-reset-btn">Reset</button>
+        </div>
+      </div>
       <div class="row" style="flex-direction: column; align-items: flex-start; gap: 10px;">
         <div>
           <div class="row-label">Background</div>
@@ -1634,7 +2140,7 @@
         <div class="bg-presets" id="bg-presets"></div>
         <div class="bg-custom-row">
           <input id="bg-custom-input" type="text" placeholder="#0F0F14 or css gradient…" maxlength="200" autocomplete="off" />
-          <button id="bg-image-btn">📁 Image</button>
+          <button id="bg-image-btn">Image</button>
         </div>
         <button id="bg-reset-btn">Reset to default</button>
       </div>

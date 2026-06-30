@@ -11,6 +11,7 @@ const elTimeElapsed = document.getElementById('time-elapsed');
 const elTimeRemaining = document.getElementById('time-remaining');
 const elTimerDisplay = document.getElementById('timer-display');
 const elToggleSync = document.getElementById('toggle-sync');
+const elToggleTextures = document.getElementById('toggle-textures');
 const elVersionSub = document.getElementById('version-sub');
 const elBtnUpdate = document.getElementById('btn-update');
 const elBtnQuit = document.getElementById('btn-quit');
@@ -379,10 +380,12 @@ function renderLeaderboard(entries) {
   elLeaderboardMonth.textContent = monthLabel;
 
   if (entries === null) {
+    document.getElementById('battle-card').style.display = 'none';
     elLeaderboardError.style.display = 'block';
     return;
   }
   if (entries.length === 0) {
+    document.getElementById('battle-card').style.display = 'none';
     elLeaderboardEmpty.style.display = 'block';
     return;
   }
@@ -409,6 +412,89 @@ function renderLeaderboard(entries) {
     row.style.animationDelay = `${Math.min(i * 0.04, 0.5)}s`;
     elLeaderboardList.appendChild(row);
   });
+
+  // Build the battle card from the same entries.
+  updateBattleCard(entries);
+}
+
+// ---- Listening battle ----
+// A head-to-head built entirely from leaderboard entries already loaded:
+// you vs whichever opponent you pick. No extra backend needed.
+let battleEntries = [];
+let battleOpponent = null; // remembered across refreshes so it doesn't reset
+
+function updateBattleCard(entries) {
+  const card = document.getElementById('battle-card');
+  const select = document.getElementById('battle-select');
+  const result = document.getElementById('battle-result');
+
+  battleEntries = entries || [];
+
+  // Need a username set and at least one OTHER person to battle.
+  const me = battleEntries.find((e) => e.username === currentUsername);
+  const others = battleEntries.filter((e) => e.username !== currentUsername);
+  if (!currentUsername || !me || others.length === 0) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+
+  // Populate the opponent dropdown, preserving the current pick if still valid.
+  const validOpponent = others.some((e) => e.username === battleOpponent);
+  if (!validOpponent) battleOpponent = others[0].username;
+  select.innerHTML = others
+    .map((e) => `<option value="${esc(e.username)}"${e.username === battleOpponent ? ' selected' : ''}>${esc(e.username)}</option>`)
+    .join('');
+  select.onchange = () => {
+    battleOpponent = select.value;
+    renderBattleResult();
+  };
+
+  renderBattleResult();
+}
+
+function renderBattleResult() {
+  const result = document.getElementById('battle-result');
+  const me = battleEntries.find((e) => e.username === currentUsername);
+  const them = battleEntries.find((e) => e.username === battleOpponent);
+  if (!me || !them) { result.innerHTML = ''; return; }
+
+  const mySec = me.totalSeconds || 0;
+  const theirSec = them.totalSeconds || 0;
+  const total = mySec + theirSec;
+  const myPct = total > 0 ? (mySec / total) * 100 : 50;
+  const theirPct = 100 - myPct;
+
+  let verdict, verdictClass;
+  if (mySec > theirSec) {
+    verdict = `You're ahead by ${formatListeningTime(mySec - theirSec)}`;
+    verdictClass = 'winning';
+  } else if (theirSec > mySec) {
+    verdict = `Behind by ${formatListeningTime(theirSec - mySec)} — catch up!`;
+    verdictClass = 'losing';
+  } else {
+    verdict = "Dead even — it's a tie!";
+    verdictClass = 'tied';
+  }
+
+  result.innerHTML = `
+    <div class="battle-vs">
+      <div class="battle-side me">
+        <div class="battle-name">${esc(currentUsername)} (you)</div>
+        <div class="battle-time">${formatListeningTime(mySec)}</div>
+      </div>
+      <div class="battle-vs-divider">VS</div>
+      <div class="battle-side">
+        <div class="battle-name">${esc(battleOpponent)}</div>
+        <div class="battle-time">${formatListeningTime(theirSec)}</div>
+      </div>
+    </div>
+    <div class="battle-bar">
+      <div class="battle-bar-me" style="width:${myPct}%"></div>
+      <div class="battle-bar-them" style="width:${theirPct}%"></div>
+    </div>
+    <div class="battle-verdict ${verdictClass}">${verdict}</div>
+  `;
 }
 
 let leaderboardRefreshTimer = null;
@@ -589,11 +675,11 @@ document.getElementById('owner-notif-send-btn').addEventListener('click', () => 
     btn.disabled = false;
     btn.textContent = 'Send notification';
     if (ok) {
-      statusEl.textContent = '✅ Sent';
+      statusEl.textContent = 'Sent';
       document.getElementById('owner-notif-body').value = '';
       document.getElementById('owner-notif-title').value = '';
     } else {
-      statusEl.textContent = '❌ Failed';
+      statusEl.textContent = 'Failed';
     }
     setTimeout(() => { statusEl.textContent = ''; }, 3000);
   });
@@ -823,6 +909,25 @@ elToggleSync.addEventListener('keydown', (e) => {
   }
 });
 
+// Tab textures toggle: flips body.textures-on and persists the choice.
+function applyTextures(on) {
+  document.body.classList.toggle('textures-on', !!on);
+  elToggleTextures.classList.toggle('on', !!on);
+  elToggleTextures.setAttribute('aria-checked', on ? 'true' : 'false');
+}
+function toggleTextures() {
+  const on = !document.body.classList.contains('textures-on');
+  applyTextures(on);
+  window.musicToDiscord.setSetting('textures', on);
+}
+elToggleTextures.addEventListener('click', toggleTextures);
+elToggleTextures.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    toggleTextures();
+  }
+});
+
 elBtnUpdate.addEventListener('click', () => {
   elBtnUpdate.textContent = 'Checking…';
   window.musicToDiscord.checkForUpdates();
@@ -903,6 +1008,7 @@ async function loadWrapped() {
   loadStreaks();
   loadAchievements();
   loadThrowback();
+  loadDailyGoal();
 }
 
 async function renderWrapped(monthKey) {
@@ -983,14 +1089,14 @@ window.musicToDiscord.onUpdateStatus((info) => {
   if (info.status === 'downloading') {
     elUpdateBanner.classList.add('show');
     elUpdateBannerText.textContent = info.version
-      ? `⬇ Downloading v${info.version}…`
-      : '⬇ Downloading update…';
+      ? `Downloading v${info.version}…`
+      : 'Downloading update…';
     elUpdateBannerBtn.disabled = true;
   } else if (info.status === 'ready') {
     elUpdateBanner.classList.add('show');
     elUpdateBannerText.textContent = info.version
-      ? `✅ v${info.version} ready to install`
-      : '✅ Update ready to install';
+      ? `v${info.version} ready to install`
+      : 'Update ready to install';
     elUpdateBannerBtn.disabled = false;
   } else if (info.status === 'idle' || info.status === 'error') {
     elUpdateBanner.classList.remove('show');
@@ -1006,6 +1112,45 @@ async function loadStreaks() {
   document.getElementById('streak-longest').textContent =
     data.longest > 0 ? `${data.longest}d` : '0';
   document.getElementById('streak-today').textContent = data.todayCount;
+}
+
+// ---- Daily listening goal (loaded as part of Wrapped) ----
+let goalInputWired = false;
+async function loadDailyGoal() {
+  const data = await window.musicToDiscord.getDailyGoal();
+  if (!data) return;
+  const { todaySeconds, goalMinutes } = data;
+  const goalSeconds = goalMinutes * 60;
+  const pct = goalSeconds > 0 ? Math.min(todaySeconds / goalSeconds, 1) : 0;
+
+  const ring = document.getElementById('goal-ring-fill');
+  const circumference = 326.7;
+  ring.style.strokeDashoffset = String(circumference * (1 - pct));
+
+  document.getElementById('goal-ring-pct').textContent = `${Math.round(pct * 100)}%`;
+
+  const todayMin = Math.round(todaySeconds / 60);
+  const statusEl = document.getElementById('goal-status');
+  if (pct >= 1) {
+    statusEl.textContent = `Goal reached! ${todayMin}m today`;
+  } else {
+    statusEl.textContent = `${todayMin}m of ${goalMinutes}m`;
+  }
+
+  const input = document.getElementById('goal-input');
+  input.value = goalMinutes;
+  // Wire the input once: saving a new goal persists it and re-renders the ring.
+  if (!goalInputWired) {
+    goalInputWired = true;
+    input.addEventListener('change', () => {
+      let val = parseInt(input.value, 10);
+      if (isNaN(val) || val < 5) val = 5;
+      if (val > 600) val = 600;
+      input.value = val;
+      window.musicToDiscord.setSetting('dailyGoalMinutes', val);
+      loadDailyGoal();
+    });
+  }
 }
 
 // ---- Achievements (loaded as part of Wrapped) ----
@@ -1025,9 +1170,13 @@ async function loadAchievements() {
     const cls = `ach-badge ${b.unlocked ? 'unlocked' : 'locked'}${isNew ? ' just-unlocked' : ''}`;
     // title attribute gives a native tooltip with the description
     const tip = b.unlocked ? `${b.title} — ${b.desc}` : `Locked: ${b.desc}`;
+    // Monogram from the badge title (first letter), shown in a styled circle
+    // instead of an emoji for a cleaner, more professional look. Locked badges
+    // show a dash.
+    const mono = b.unlocked ? (b.title.trim()[0] || '?').toUpperCase() : '–';
     return `
       <div class="${cls}" title="${esc(tip)}">
-        <div class="ach-badge-emoji">${b.unlocked ? b.emoji : '🔒'}</div>
+        <div class="ach-badge-mono">${esc(mono)}</div>
         <div class="ach-badge-title">${esc(b.title)}</div>
       </div>
     `;
@@ -1121,17 +1270,17 @@ document.getElementById('share-copy-btn').addEventListener('click', async () => 
     const artist = document.getElementById('share-card-artist').textContent;
     const album = document.getElementById('share-card-album').textContent;
     const albumPart = album ? ` (${album})` : '';
-    const text = `🎵 Listening to: ${name} by ${artist}${albumPart} — via MusicToDiscord`;
+    const text = `Listening to: ${name} by ${artist}${albumPart} — via MusicToDiscord`;
     await navigator.clipboard.writeText(text);
-    btn.textContent = '✅ Copied!';
+    btn.textContent = 'Copied!';
     statusEl.textContent = 'Paste anywhere to share';
   } catch (e) {
-    btn.textContent = '❌ Failed';
+    btn.textContent = 'Failed';
     statusEl.textContent = 'Could not access clipboard';
   }
 
   setTimeout(() => {
-    btn.textContent = '📋 Copy as text';
+    btn.textContent = 'Copy as text';
     btn.disabled = false;
     statusEl.textContent = '';
   }, 3000);
@@ -1152,7 +1301,7 @@ async function loadRecommendations() {
   emptyEl.style.display = 'none';
   listEl.innerHTML = recs.map(r => `
     <div class="rec-row">
-      <div class="rec-icon">🎵</div>
+      <div class="rec-icon">&#9834;</div>
       <div class="rec-info">
         <div class="rec-name">${esc(r.name)}</div>
         <div class="rec-artist">${esc(r.artist)}</div>
@@ -1261,13 +1410,328 @@ window.musicToDiscord.getSettings().then(settings => {
   if (settings && settings.background) {
     applyBackground(settings.background);
   }
+  // Restore the tab-textures preference (defaults off).
+  applyTextures(!!(settings && settings.textures));
+  // Restore custom accent color if set.
+  if (settings && settings.accentColor) {
+    applyAccent(settings.accentColor);
+    const ai = document.getElementById('accent-input');
+    if (ai) ai.value = settings.accentColor;
+  }
 });
+
+// Applies a custom accent color by overriding the --indigo/--sky variables.
+// Passing null clears the override (back to theme default).
+function applyAccent(color) {
+  const root = document.documentElement;
+  if (color) {
+    root.style.setProperty('--indigo', color);
+    root.style.setProperty('--sky', color);
+  } else {
+    root.style.removeProperty('--indigo');
+    root.style.removeProperty('--sky');
+  }
+}
+
+// Wire the accent picker controls.
+(function initAccentPicker() {
+  const input = document.getElementById('accent-input');
+  const resetBtn = document.getElementById('accent-reset-btn');
+  if (!input) return;
+  input.addEventListener('input', () => {
+    applyAccent(input.value);
+    window.musicToDiscord.setSetting('accentColor', input.value);
+  });
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      applyAccent(null);
+      window.musicToDiscord.setSetting('accentColor', null);
+      input.value = '#5865F2';
+    });
+  }
+})();
 
 // Live updates from other windows/instances
 window.musicToDiscord.onSettingChanged(({ key, value }) => {
   if (key === 'background') applyBackground(value);
+  if (key === 'textures') applyTextures(!!value);
 });
 
 // ================================================================
 // WIDE LAYOUT MODE
 // ================================================================
+
+// ================================================================
+// ANALOG CLOCK
+// ================================================================
+// Draws the tick marks once, then sweeps the hands every second. The second
+// hand moves smoothly; hour/minute update with it. Uses requestAnimationFrame
+// only while the window is visible to avoid wasting cycles in the tray.
+(function initClock() {
+  const ticksGroup = document.getElementById('clock-ticks');
+  const handHour = document.getElementById('hand-hour');
+  const handMinute = document.getElementById('hand-minute');
+  const handSecond = document.getElementById('hand-second');
+  const digital = document.getElementById('clock-digital');
+  if (!ticksGroup || !handHour) return;
+
+  // Build 12 tick marks around the face.
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  for (let i = 0; i < 60; i++) {
+    const major = i % 5 === 0;
+    // Skip minor ticks for a cleaner look; keep only the 12 majors.
+    if (!major) continue;
+    const angle = (i / 60) * Math.PI * 2;
+    const inner = major ? 78 : 84;
+    const outer = 88;
+    const x1 = 100 + Math.sin(angle) * inner;
+    const y1 = 100 - Math.cos(angle) * inner;
+    const x2 = 100 + Math.sin(angle) * outer;
+    const y2 = 100 - Math.cos(angle) * outer;
+    const line = document.createElementNS(SVGNS, 'line');
+    line.setAttribute('x1', x1.toFixed(1));
+    line.setAttribute('y1', y1.toFixed(1));
+    line.setAttribute('x2', x2.toFixed(1));
+    line.setAttribute('y2', y2.toFixed(1));
+    line.setAttribute('class', 'clock-tick major');
+    ticksGroup.appendChild(line);
+  }
+
+  function tick() {
+    const now = new Date();
+    const ms = now.getMilliseconds();
+    const s = now.getSeconds() + ms / 1000;
+    const m = now.getMinutes() + s / 60;
+    const h = (now.getHours() % 12) + m / 60;
+
+    const secAngle = s * 6;        // 360/60
+    const minAngle = m * 6;
+    const hourAngle = h * 30;      // 360/12
+
+    handSecond.setAttribute('transform', `rotate(${secAngle} 100 100)`);
+    handMinute.setAttribute('transform', `rotate(${minAngle} 100 100)`);
+    handHour.setAttribute('transform', `rotate(${hourAngle} 100 100)`);
+
+    // Digital readout under the clock (12-hour with AM/PM).
+    let hh = now.getHours();
+    const ampm = hh >= 12 ? 'PM' : 'AM';
+    hh = hh % 12 || 12;
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    digital.textContent = `${hh}:${mm} ${ampm}`;
+  }
+
+  let rafId = null;
+  function loop() {
+    tick();
+    rafId = requestAnimationFrame(loop);
+  }
+
+  // Pause the smooth animation when the window is hidden (tray), resume on show.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    } else if (!rafId) {
+      loop();
+    }
+  });
+
+  loop();
+})();
+
+// ================================================================
+// FUN BUTTONS (Now Playing)
+// ================================================================
+(function initFunButtons() {
+  const output = document.getElementById('fun-output');
+  const btnQuote = document.getElementById('fun-btn-quote');
+  const btnShuffle = document.getElementById('fun-btn-shuffle');
+  const btnArt = document.getElementById('fun-btn-art');
+  if (!output) return;
+
+  // --- Ye-isms: ORIGINAL confident one-liners written in a braggadocious
+  // style. These are NOT real Kanye quotes or lyrics -- they're original text
+  // so there's no copyright issue. ---
+  const YEISMS = [
+    "I'm not here to fit in. I'm here to stand out.",
+    "Doubt me once, watch me do it twice.",
+    "Greatness isn't given. It's taken.",
+    "They laughed at the dream. Now they stream it.",
+    "I don't chase trends. I leave footprints.",
+    "Average was never an option.",
+    "The vision was clear before the world could see it.",
+    "I turned the noise into a symphony.",
+    "Built different, wired louder.",
+    "Confidence is just talent that showed up early.",
+    "I don't follow the wave. I am the tide.",
+    "Every 'no' was just a remix waiting to happen.",
+    "Legends don't ask for permission.",
+    "I speak in futures the present can't pronounce.",
+    "Ordinary minds make ordinary noise. I make anthems.",
+    "The ceiling was just a floor I hadn't reached yet.",
+    "I bet on myself when the odds laughed back.",
+    "Make it loud enough and the doubters become fans.",
+  ];
+
+  let lastQuoteIdx = -1;
+  function showQuote() {
+    let idx;
+    do { idx = Math.floor(Math.random() * YEISMS.length); }
+    while (idx === lastQuoteIdx && YEISMS.length > 1);
+    lastQuoteIdx = idx;
+    output.innerHTML = `<div class="fun-quote">"${esc(YEISMS[idx])}"</div>`;
+  }
+
+  // --- Color shuffle: era-INSPIRED palettes (no album art, just colors).
+  // Applies as the dynamic theme so the whole UI + clock shift. ---
+  const PALETTES = [
+    { name: 'Sunrise', accent: '#FF6FB5', bg: '#1a0f1a' },
+    { name: 'Maroon',  accent: '#C2454B', bg: '#1a0d0e' },
+    { name: 'Sky',     accent: '#7CC4FF', bg: '#0d1320' },
+    { name: 'Gold',    accent: '#E0B84C', bg: '#1a1608' },
+    { name: 'Mint',    accent: '#5FE0A8', bg: '#0c1a14' },
+    { name: 'Violet',  accent: '#A77CFF', bg: '#140d1f' },
+    { name: 'Ember',   accent: '#FF8A3D', bg: '#1f1109' },
+    { name: 'Crimson', accent: '#FF4D6D', bg: '#1c0a10' },
+  ];
+  let lastPaletteIdx = -1;
+  function shufflePalette() {
+    let idx;
+    do { idx = Math.floor(Math.random() * PALETTES.length); }
+    while (idx === lastPaletteIdx && PALETTES.length > 1);
+    lastPaletteIdx = idx;
+    const p = PALETTES[idx];
+    const root = document.documentElement;
+    root.style.setProperty('--indigo', p.accent);
+    root.style.setProperty('--sky', p.accent);
+    root.style.setProperty('--dyn-bg', p.bg);
+    // raised bg = slightly lighter than bg
+    root.style.setProperty('--dyn-bg-raised', p.bg.replace(/^#/, '#1'));
+    document.body.classList.add('dynamic-theme');
+    output.innerHTML = `<div class="fun-quote">${esc(p.name)}</div>`;
+  }
+
+  // --- Generative art: random original abstract burst drawn on a canvas. ---
+  function makeArt() {
+    output.innerHTML = '';
+    const canvas = document.createElement('canvas');
+    canvas.className = 'fun-art-canvas';
+    canvas.width = 280;
+    canvas.height = 140;
+    output.appendChild(canvas);
+    const ctx = canvas.getContext('2d');
+
+    // Random background gradient
+    const hue1 = Math.floor(Math.random() * 360);
+    const hue2 = (hue1 + 60 + Math.floor(Math.random() * 180)) % 360;
+    const grad = ctx.createLinearGradient(0, 0, 280, 140);
+    grad.addColorStop(0, `hsl(${hue1}, 70%, 18%)`);
+    grad.addColorStop(1, `hsl(${hue2}, 70%, 12%)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 280, 140);
+
+    // Random circles and lines
+    const shapeCount = 8 + Math.floor(Math.random() * 10);
+    for (let i = 0; i < shapeCount; i++) {
+      const hue = (hue1 + Math.random() * 120) % 360;
+      ctx.fillStyle = `hsla(${hue}, 80%, ${50 + Math.random() * 30}%, ${0.3 + Math.random() * 0.5})`;
+      ctx.strokeStyle = ctx.fillStyle;
+      if (Math.random() < 0.6) {
+        ctx.beginPath();
+        ctx.arc(Math.random() * 280, Math.random() * 140, 4 + Math.random() * 30, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.lineWidth = 1 + Math.random() * 4;
+        ctx.beginPath();
+        ctx.moveTo(Math.random() * 280, Math.random() * 140);
+        ctx.lineTo(Math.random() * 280, Math.random() * 140);
+        ctx.stroke();
+      }
+    }
+  }
+
+  btnQuote.addEventListener('click', showQuote);
+  btnShuffle.addEventListener('click', shufflePalette);
+  btnArt.addEventListener('click', makeArt);
+
+  // "Daily" -> a theme-of-the-day: deterministic from today's date, so it's
+  // the same all day but changes each day. Applies a palette + shows the day's
+  // Ye-ism paired with it.
+  const btnDaily = document.getElementById('fun-btn-daily');
+  if (btnDaily) {
+    btnDaily.addEventListener('click', () => {
+      const now = new Date();
+      // Day-of-year as a stable seed for today.
+      const start = new Date(now.getFullYear(), 0, 0);
+      const dayOfYear = Math.floor((now - start) / 86400000);
+      const p = PALETTES[dayOfYear % PALETTES.length];
+      const quote = YEISMS[dayOfYear % YEISMS.length];
+      const root = document.documentElement;
+      root.style.setProperty('--indigo', p.accent);
+      root.style.setProperty('--sky', p.accent);
+      root.style.setProperty('--dyn-bg', p.bg);
+      root.style.setProperty('--dyn-bg-raised', p.bg.replace(/^#/, '#1'));
+      document.body.classList.add('dynamic-theme');
+      output.innerHTML = `<div class="fun-quote">Today's vibe: ${esc(p.name)}<br><span style="font-size:13px;opacity:0.85">"${esc(quote)}"</span></div>`;
+    });
+  }
+})();
+
+// ================================================================
+// MINI VISUALIZER
+// ================================================================
+// Builds a strip of bars with randomized animation timing so they bounce
+// organically (like a real visualizer) while music plays. We don't have the
+// raw audio stream -- this is a stylized fake driven purely by CSS animation,
+// shown only while body.is-playing is set.
+(function initVisualizer() {
+  const viz = document.getElementById('visualizer');
+  if (!viz) return;
+  const BAR_COUNT = 28;
+  for (let i = 0; i < BAR_COUNT; i++) {
+    const bar = document.createElement('span');
+    // Randomize each bar's speed and phase so they don't move in lockstep.
+    const dur = (0.6 + Math.random() * 0.9).toFixed(2);
+    const delay = (Math.random() * -1.2).toFixed(2);
+    bar.style.animationDuration = `${dur}s`;
+    bar.style.animationDelay = `${delay}s`;
+    viz.appendChild(bar);
+  }
+})();
+
+// ================================================================
+// LISTENING PARTY
+// ================================================================
+// Polls Firestore presence every 20s and shows how many others are listening
+// right now, highlighting when someone's on the same song as you. Fails
+// silently (just hides) when Firestore is unreachable, e.g. on a school
+// network that blocks it.
+(function initListeningParty() {
+  const el = document.getElementById('listening-party');
+  if (!el) return;
+
+  async function refresh() {
+    try {
+      const data = await window.musicToDiscord.getListeningParty();
+      if (!data || data.unavailable || data.total === 0) {
+        el.style.display = 'none';
+        return;
+      }
+      const sameSong = data.listeners.filter((l) => l.sameSong);
+      el.style.display = 'flex';
+      if (sameSong.length > 0) {
+        el.classList.add('same-song');
+        const names = sameSong.slice(0, 2).map((l) => l.username).join(', ');
+        const extra = sameSong.length > 2 ? ` +${sameSong.length - 2} more` : '';
+        el.innerHTML = `<span class="party-dot"></span> Listening with ${esc(names)}${extra} — same song!`;
+      } else {
+        el.classList.remove('same-song');
+        el.innerHTML = `<span class="party-dot"></span> ${data.total} ${data.total === 1 ? 'other is' : 'others are'} listening right now`;
+      }
+    } catch (e) {
+      el.style.display = 'none';
+    }
+  }
+
+  refresh();
+  setInterval(refresh, 20000);
+})();

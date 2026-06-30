@@ -232,6 +232,46 @@ async function listBannedUsernames() {
   });
 }
 
+// ---- Listening presence (for "listening party" status) ----
+// A `presence` collection, one doc per username, recording what they're
+// playing right now and when they last updated. Entries are treated as
+// stale (the user has stopped/closed the app) if their updatedAt is older
+// than a couple minutes -- callers filter those out client-side.
+
+// Write/refresh this user's now-playing presence.
+async function setPresence(username, data) {
+  const path = `${BASE_PATH}/presence/${encodeDocId(username)}`;
+  await request('PATCH', path, {
+    fields: toFirestoreFields({
+      username,
+      song: data.song || '',
+      artist: data.artist || '',
+      updatedAt: new Date(),
+    }),
+  });
+}
+
+// Remove this user's presence (called when playback stops or app quits).
+async function clearPresence(username) {
+  const path = `${BASE_PATH}/presence/${encodeDocId(username)}`;
+  await request('DELETE', path);
+}
+
+// List everyone's presence docs. Callers filter out stale ones and the
+// current user themselves.
+async function listPresence() {
+  const path = `${BASE_PATH}/presence?pageSize=300`;
+  const result = await request('GET', path);
+  const docs = result.documents || [];
+  return docs.map((doc) => {
+    const idParts = doc.name.split('/');
+    return {
+      id: idParts[idParts.length - 1],
+      ...fromFirestoreFields(doc.fields),
+    };
+  });
+}
+
 module.exports = {
   setLeaderboardEntry,
   listLeaderboardEntries,
@@ -242,4 +282,7 @@ module.exports = {
   unbanUsername,
   isUsernameBanned,
   listBannedUsernames,
+  setPresence,
+  clearPresence,
+  listPresence,
 };
