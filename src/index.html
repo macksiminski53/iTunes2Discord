@@ -459,6 +459,11 @@
     15%  { opacity: 0.9; }
     100% { transform: translateY(-110vh) rotate(25deg); opacity: 0; }
   }
+  @keyframes particle-fall {
+    0%   { transform: translateY(0) rotate(0deg); opacity: 0; }
+    10%  { opacity: 0.9; }
+    100% { transform: translateY(110vh) rotate(180deg); opacity: 0.3; }
+  }
   @keyframes banner-drop {
     0%   { opacity: 0; transform: translateY(-100%); }
     100% { opacity: 1; transform: translateY(0); }
@@ -1170,6 +1175,15 @@
     text-align: center;
   }
   #setup-overlay.show { display: flex; }
+  #setup-tips {
+    margin-top: 16px;
+    font-size: 11px;
+    color: var(--text-dim);
+    max-width: 300px;
+    text-align: center;
+    line-height: 1.5;
+  }
+  #setup-tips b { color: var(--text); }
 
   #setup-title {
     font-size: 17px;
@@ -2005,12 +2019,13 @@
 <body>
 
   <div id="setup-overlay">
-    <div id="setup-title">What's your Discord username?</div>
-    <div id="setup-sub">This is shown on the shared leaderboard so friends can see who's listened the most this month.</div>
+    <div id="setup-title">Welcome to Music to Discord</div>
+    <div id="setup-sub">Play music in Apple Music and it shows up as your Discord status automatically. Pick a username for the shared leaderboard so friends can see who's listened most this month.</div>
     <input id="setup-input" type="text" placeholder="e.g. yourname" maxlength="32" autocomplete="off" />
     <div id="setup-error"></div>
     <button id="setup-submit" disabled>Save</button>
     <button id="setup-skip">Skip for now</button>
+    <div id="setup-tips">Tip: press <b>1–6</b> to switch tabs, <b>M</b> for mini mode. Check the <b>Wrapped</b> tab for your stats and achievements.</div>
   </div>
 
   <div id="drag-region">
@@ -2304,6 +2319,23 @@
           <div class="row-sub">Skeuomorphic themes — wood, paper, cork &amp; more per tab</div>
         </div>
         <div class="toggle" id="toggle-textures" role="switch" aria-checked="false" tabindex="0"></div>
+      </div>
+      <div class="row">
+        <div>
+          <div class="row-label">Random theme on launch</div>
+          <div class="row-sub">Start each session with a random accent palette</div>
+        </div>
+        <div class="toggle" id="toggle-random-theme" role="switch" aria-checked="false" tabindex="0"></div>
+      </div>
+      <div class="row">
+        <div>
+          <div class="row-label">Export listening data</div>
+          <div class="row-sub">Save your full play history to a file</div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="pill-btn" id="export-json-btn">JSON</button>
+          <button class="pill-btn" id="export-csv-btn">CSV</button>
+        </div>
       </div>
       <div class="row">
         <div>

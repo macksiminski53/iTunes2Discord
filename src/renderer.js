@@ -1502,7 +1502,31 @@ window.musicToDiscord.getSettings().then(settings => {
   applyClockStyle(clockStyle);
   const cs = document.getElementById('clock-style-select');
   if (cs) cs.value = clockStyle;
+
+  // Random theme on launch: if enabled, apply a random palette now.
+  const randomOn = !!(settings && settings.randomThemeOnLaunch);
+  applyRandomThemeToggle(randomOn);
+  if (randomOn && typeof applyRandomLaunchTheme === 'function') {
+    applyRandomLaunchTheme();
+  }
 });
+
+// Applies a random accent palette (used by "random theme on launch").
+function applyRandomLaunchTheme() {
+  const palettes = [
+    { accent: '#FF6FB5', bg: '#1a0f1a' }, { accent: '#C2454B', bg: '#1a0d0e' },
+    { accent: '#7CC4FF', bg: '#0d1320' }, { accent: '#E0B84C', bg: '#1a1608' },
+    { accent: '#5FE0A8', bg: '#0c1a14' }, { accent: '#A77CFF', bg: '#140d1f' },
+    { accent: '#FF8A3D', bg: '#1f1109' }, { accent: '#FF4D6D', bg: '#1c0a10' },
+  ];
+  const p = palettes[Math.floor(Math.random() * palettes.length)];
+  const root = document.documentElement;
+  root.style.setProperty('--indigo', p.accent);
+  root.style.setProperty('--sky', p.accent);
+  root.style.setProperty('--dyn-bg', p.bg);
+  root.style.setProperty('--dyn-bg-raised', p.bg.replace(/^#/, '#1'));
+  document.body.classList.add('dynamic-theme');
+}
 
 // Applies a clock face style by toggling body classes.
 function applyClockStyle(style) {
@@ -1516,6 +1540,55 @@ function applyClockStyle(style) {
   select.addEventListener('change', () => {
     applyClockStyle(select.value);
     window.musicToDiscord.setSetting('clockStyle', select.value);
+  });
+})();
+
+// Export listening data buttons.
+(function initExport() {
+  function doExport(format, btn) {
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    window.musicToDiscord.exportHistory(format).then((res) => {
+      btn.disabled = false;
+      if (res && res.ok) {
+        btn.textContent = 'Saved!';
+      } else if (res && res.reason === 'empty') {
+        btn.textContent = 'No data';
+      } else if (res && res.reason === 'canceled') {
+        btn.textContent = original;
+      } else {
+        btn.textContent = 'Failed';
+      }
+      if (btn.textContent !== original) {
+        setTimeout(() => { btn.textContent = original; }, 2000);
+      }
+    });
+  }
+  const jbtn = document.getElementById('export-json-btn');
+  const cbtn = document.getElementById('export-csv-btn');
+  if (jbtn) jbtn.addEventListener('click', () => doExport('json', jbtn));
+  if (cbtn) cbtn.addEventListener('click', () => doExport('csv', cbtn));
+})();
+
+// Random theme on launch toggle.
+const elToggleRandomTheme = document.getElementById('toggle-random-theme');
+function applyRandomThemeToggle(on) {
+  if (elToggleRandomTheme) {
+    elToggleRandomTheme.classList.toggle('on', !!on);
+    elToggleRandomTheme.setAttribute('aria-checked', on ? 'true' : 'false');
+  }
+}
+(function initRandomThemeToggle() {
+  if (!elToggleRandomTheme) return;
+  function toggle() {
+    const on = !elToggleRandomTheme.classList.contains('on');
+    applyRandomThemeToggle(on);
+    window.musicToDiscord.setSetting('randomThemeOnLaunch', on);
+  }
+  elToggleRandomTheme.addEventListener('click', toggle);
+  elToggleRandomTheme.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
   });
 })();
 
@@ -2031,7 +2104,37 @@ function triggerEasterEgg(egg) {
       eggToast('🐾 Woof');
       break;
     case 'secret':
-      eggToast('Codes: CONFETTI · RAINBOW · MATRIX · GOLDEN · VAPOR · 808S · YEEZY · BARKING', 6000);
+      eggToast('Codes: CONFETTI · RAINBOW · MATRIX · GOLDEN · VAPOR · 808S · YEEZY · BARKING · SNOW · FIRE · DISCO · STARS · GLITCH · ZEN', 7000);
+      break;
+    case 'snow':
+      particleFall('❄', '#cfe8ff');
+      eggToast('❄️ Let it snow');
+      break;
+    case 'fire':
+      themeFlash('#FF5722', '#1a0d08', '🔥 Lit');
+      particleRise('🔥');
+      break;
+    case 'disco':
+      discoLights();
+      eggToast('🕺 Disco fever');
+      break;
+    case 'graduation':
+      themeFlash('#FF6FB5', '#1a0f1f', 'Graduation 🎓');
+      particleRise('🎓');
+      break;
+    case 'donda':
+      themeFlash('#1a1a1a', '#000000', 'DONDA');
+      break;
+    case 'stars':
+      particleFall('⭐', '#ffe680');
+      eggToast('✨ Reach for the stars');
+      break;
+    case 'glitch':
+      glitchEffect();
+      eggToast('g̷l̴i̶t̷c̸h̴');
+      break;
+    case 'zen':
+      themeFlash('#5FE0A8', '#0c1a14', '🧘 Breathe');
       break;
     default:
       eggToast('???');
@@ -2131,20 +2234,73 @@ function matrixRain() {
   draw();
 }
 
-// Paw prints floating up from the bottom.
-function pawPrints() {
+// Generic particles falling from the top (snow, stars).
+function particleFall(char, color) {
   const container = document.createElement('div');
   container.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:9998;overflow:hidden;';
   document.body.appendChild(container);
-  for (let i = 0; i < 14; i++) {
-    const paw = document.createElement('div');
-    paw.textContent = '🐾';
+  for (let i = 0; i < 40; i++) {
+    const p = document.createElement('div');
+    p.textContent = char;
     const left = Math.random() * 100;
-    const size = 18 + Math.random() * 24;
+    const size = 10 + Math.random() * 18;
+    const dur = 3 + Math.random() * 4;
+    const delay = Math.random() * 3;
+    p.style.cssText = `position:absolute;left:${left}%;top:-30px;font-size:${size}px;color:${color};opacity:0.9;animation:particle-fall ${dur}s linear ${delay}s forwards;`;
+    container.appendChild(p);
+  }
+  setTimeout(() => container.remove(), 8000);
+}
+
+// Generic particles rising from the bottom (fire, graduation caps).
+function particleRise(char) {
+  const container = document.createElement('div');
+  container.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:9998;overflow:hidden;';
+  document.body.appendChild(container);
+  for (let i = 0; i < 20; i++) {
+    const p = document.createElement('div');
+    p.textContent = char;
+    const left = Math.random() * 100;
+    const size = 16 + Math.random() * 22;
     const dur = 2.5 + Math.random() * 2;
     const delay = Math.random() * 1.5;
-    paw.style.cssText = `position:absolute;left:${left}%;bottom:-40px;font-size:${size}px;opacity:0.9;animation:paw-float ${dur}s ease-in ${delay}s forwards;`;
-    container.appendChild(paw);
+    p.style.cssText = `position:absolute;left:${left}%;bottom:-40px;font-size:${size}px;animation:paw-float ${dur}s ease-in ${delay}s forwards;`;
+    container.appendChild(p);
   }
-  setTimeout(() => container.remove(), 5000);
+  setTimeout(() => container.remove(), 5500);
+}
+
+// Disco: rapidly cycling colorful flashes over the whole window.
+function discoLights() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:9997;mix-blend-mode:overlay;';
+  document.body.appendChild(overlay);
+  let n = 0;
+  const iv = setInterval(() => {
+    overlay.style.background = `hsl(${Math.random() * 360}, 90%, 55%)`;
+    if (++n > 40) {
+      clearInterval(iv);
+      overlay.style.transition = 'opacity 0.5s';
+      overlay.style.opacity = '0';
+      setTimeout(() => overlay.remove(), 600);
+    }
+  }, 120);
+}
+
+// Glitch: briefly shakes/skews the whole app with a jitter.
+function glitchEffect() {
+  document.body.style.transition = 'none';
+  let n = 0;
+  const iv = setInterval(() => {
+    const x = (Math.random() - 0.5) * 8;
+    const y = (Math.random() - 0.5) * 8;
+    const skew = (Math.random() - 0.5) * 3;
+    document.body.style.transform = `translate(${x}px, ${y}px) skew(${skew}deg)`;
+    document.body.style.filter = Math.random() > 0.7 ? 'hue-rotate(90deg)' : 'none';
+    if (++n > 20) {
+      clearInterval(iv);
+      document.body.style.transform = '';
+      document.body.style.filter = '';
+    }
+  }, 70);
 }

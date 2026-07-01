@@ -387,6 +387,7 @@ function runApp() {
   let devPasscodeDisabledUntil = 0; // Date.now() timestamp; 0 means not disabled
   let devPasscodeDisableTimer = null;
   let sessionSecondsThisMonth = 0; // accumulated locally since last Firestore push
+  let activeMonthKey = null; // the month sessionSecondsThisMonth belongs to; reset on rollover
   let lastLeaderboardPushAt = 0;
   let leaderboardSyncTimer = null;
 
@@ -1240,6 +1241,20 @@ function runApp() {
         // a long gap (laptop sleep, etc.) can't silently inflate someone's
         // total by however many hours the machine was actually asleep.
         if (track.state === 'playing' && lastPollAt !== null) {
+          // Detect a month rollover while the app is running. sessionSeconds
+          // ThisMonth was seeded with the starting month's total; when the
+          // calendar month changes we must reset to 0 so the new month's
+          // leaderboard entry starts fresh instead of inheriting last month's
+          // hours (which would write, e.g., June's 20h into the July doc).
+          const nowMonthKey = getCurrentMonthKey();
+          if (activeMonthKey === null) {
+            activeMonthKey = nowMonthKey;
+          } else if (nowMonthKey !== activeMonthKey) {
+            log.info(`Month rolled over ${activeMonthKey} -> ${nowMonthKey}; resetting monthly total`);
+            activeMonthKey = nowMonthKey;
+            sessionSecondsThisMonth = 0;
+          }
+
           const elapsedSec = (now - lastPollAt) / 1000;
           const cappedSec = Math.min(elapsedSec, (POLL_INTERVAL_MS / 1000) * 2);
           if (cappedSec > 0) {
@@ -1693,6 +1708,14 @@ function runApp() {
       'YEEZY': 'yeezy',
       'BARKING': 'barking',
       'SECRET': 'secret',
+      'SNOW': 'snow',
+      'FIRE': 'fire',
+      'DISCO': 'disco',
+      'GRADUATION': 'graduation',
+      'DONDA': 'donda',
+      'STARS': 'stars',
+      'GLITCH': 'glitch',
+      'ZEN': 'zen',
     };
     const eggKey = trimmed.toUpperCase();
     if (EASTER_EGGS[eggKey]) {
@@ -1749,6 +1772,9 @@ function runApp() {
       monthlyTotalLoaded = false;
       sessionSecondsThisMonth = await loadExistingMonthlyTotal();
       monthlyTotalLoaded = true;
+      // Anchor the month this total belongs to, so a rollover mid-session
+      // resets it instead of writing last month's hours into the new month.
+      activeMonthKey = getCurrentMonthKey();
     }
 
     // Push an entry right away so a new/renamed user shows up on the
@@ -1975,6 +2001,48 @@ function runApp() {
   // ---- Play history (timeline + search) ----
   // Returns recent plays, newest first, optionally filtered by a search query
   // matching song or artist. Capped so the UI stays snappy.
+  // ---- Export listening data ----
+  // Lets the user save their full play history to a JSON or CSV file via a
+  // native save dialog. Purely local -- reads playHistory and writes to disk.
+  ipcMain.handle('export-history', async (_event, format) => {
+    if (playHistory.length === 0) return { ok: false, reason: 'empty' };
+
+    const ext = format === 'csv' ? 'csv' : 'json';
+    const defaultName = `musictodiscord-history-${getCurrentMonthKey()}.${ext}`;
+
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export listening history',
+      defaultPath: defaultName,
+      filters: ext === 'csv'
+        ? [{ name: 'CSV', extensions: ['csv'] }]
+        : [{ name: 'JSON', extensions: ['json'] }],
+    });
+    if (canceled || !filePath) return { ok: false, reason: 'canceled' };
+
+    try {
+      let content;
+      if (ext === 'csv') {
+        const escape = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+        const rows = [['Song', 'Artist', 'Album', 'Played At', 'Seconds Listened']];
+        for (const e of playHistory) {
+          rows.push([
+            escape(e.name), escape(e.artist), escape(e.album),
+            escape(new Date(e.timestamp).toISOString()), escape(e.duration || 0),
+          ]);
+        }
+        content = rows.map((r) => r.join(',')).join('\n');
+      } else {
+        content = JSON.stringify(playHistory, null, 2);
+      }
+      fs.writeFileSync(filePath, content, 'utf8');
+      log.info('Exported history to', filePath);
+      return { ok: true, path: filePath, count: playHistory.length };
+    } catch (e) {
+      log.warn('Export failed:', e.message);
+      return { ok: false, reason: 'write_error' };
+    }
+  });
+
   ipcMain.handle('get-history', (_event, query) => {
     const q = (query || '').trim().toLowerCase();
     let entries = [...playHistory].reverse(); // newest first

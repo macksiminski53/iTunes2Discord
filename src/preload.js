@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   getDailyGoal: () => ipcRenderer.invoke('get-daily-goal'),
   getListeningParty: () => ipcRenderer.invoke('get-listening-party'),
   getHistory: (query) => ipcRenderer.invoke('get-history', query),
+  exportHistory: (format) => ipcRenderer.invoke('export-history', format),
   toggleMiniMode: (on) => ipcRenderer.invoke('toggle-mini-mode', on),
   setSleepTimer: (minutes) => ipcRenderer.invoke('set-sleep-timer', minutes),
   onSleepTimerFired: (callback) => ipcRenderer.on('sleep-timer-fired', () => callback()),
