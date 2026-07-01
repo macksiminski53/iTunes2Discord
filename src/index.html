@@ -758,6 +758,48 @@
     text-align: center;
   }
 
+  /* ---- Global now-playing ticker ---- */
+  #ticker-wrap {
+    overflow: hidden;
+    white-space: nowrap;
+    padding: 8px 0;
+    margin: 0 28px 4px;
+    border-top: 1px solid var(--divider);
+    border-bottom: 1px solid var(--divider);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  }
+  #ticker-track {
+    display: inline-block;
+    white-space: nowrap;
+    animation: ticker-scroll 30s linear infinite;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  #ticker-track:hover { animation-play-state: paused; }
+  #ticker-track .ticker-item { margin-right: 40px; }
+  #ticker-track .ticker-user { color: var(--indigo); font-weight: 700; }
+  #ticker-track .ticker-fav { color: var(--good); }
+  @keyframes ticker-scroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+
+  /* ---- Favorite star on leaderboard rows ---- */
+  .lb-fav {
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 15px;
+    -webkit-app-region: no-drag;
+    background: none;
+    border: none;
+    padding: 0 4px;
+    transition: color 0.15s, transform 0.1s;
+  }
+  .lb-fav:hover { transform: scale(1.2); }
+  .lb-fav.favorited { color: var(--good); }
+  .lb-row.favorited { border-color: var(--good); }
+
   /* ---- Fun buttons (Now Playing) ---- */
   #fun-buttons {
     display: flex;
@@ -1453,6 +1495,169 @@
     text-overflow: ellipsis;
   }
 
+  /* ---- Music Pet ---- */
+  #view-pet {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 28px;
+    flex: 1;
+    overflow-y: auto;
+  }
+  body.tab-pet #view-pet { display: flex; }
+  body.tab-pet #view-now-playing,
+  body.tab-pet #view-leaderboard { display: none; }
+
+  #pet-stage {
+    position: relative;
+    width: 200px;
+    height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 8px;
+  }
+  #pet-creature {
+    animation: pet-bob 3s ease-in-out infinite;
+    transform-origin: center bottom;
+  }
+  @keyframes pet-bob {
+    0%, 100% { transform: translateY(0) scale(1, 1); }
+    50%      { transform: translateY(-8px) scale(1.02, 0.98); }
+  }
+  #pet-body { fill: #8a5a2b; transition: fill 0.5s; }
+  .pet-ear { fill: #8a5a2b; transition: fill 0.5s; }
+  .pet-ear-inner { fill: #b3814f; }
+  .pet-snout { fill: #d9b183; }
+  .pet-nose { fill: #2a1a0e; }
+  .pet-eye-dot { fill: #2a1a0e; }
+  #pet-mouth { stroke: #2a1a0e; }
+
+  /* Genre gear: hidden unless vibing to that genre */
+  .gear { display: none; }
+  body.pet-vibing.vibe-hiphop .gear-hiphop,
+  body.pet-vibing.vibe-rock .gear-rock,
+  body.pet-vibing.vibe-pop .gear-pop,
+  body.pet-vibing.vibe-rbsoul .gear-rbsoul,
+  body.pet-vibing.vibe-electronic .gear-electronic,
+  body.pet-vibing.vibe-jazz .gear-jazz,
+  body.pet-vibing.vibe-classical .gear-classical,
+  body.pet-vibing.vibe-country .gear-country { display: block; }
+
+  /* While vibing, Markus sways side to side like he's performing */
+  body.pet-vibing #pet-creature {
+    animation: pet-sway 0.9s ease-in-out infinite;
+  }
+  @keyframes pet-sway {
+    0%, 100% { transform: rotate(-5deg) translateY(0); }
+    50%      { transform: rotate(5deg) translateY(-3px); }
+  }
+
+  /* Shutter shades */
+  .shade-frame { fill: #f4f4f4; stroke: #cfcfcf; stroke-width: 1; }
+  .shade-bridge { fill: #f4f4f4; }
+  .shade-slat { stroke: #d0d0d0; stroke-width: 2.5; stroke-linecap: round; }
+
+  /* Mood states recolor the bear + change the mouth */
+  body.pet-happy #pet-body,
+  body.pet-happy .pet-ear { fill: #a06a30; }
+  body.pet-sad #pet-body,
+  body.pet-sad .pet-ear { fill: #6f6152; }
+  body.pet-sick #pet-body,
+  body.pet-sick .pet-ear { fill: #7d7a4a; }
+  /* Sad/sick: frown */
+  body.pet-sad #pet-mouth,
+  body.pet-sick #pet-mouth { d: path("M 58 100 Q 70 92 82 100"); }
+  /* Dead: greyed + X eyes feel via frown, no bob */
+  body.pet-dead #pet-creature { filter: grayscale(1); animation: none; opacity: 0.6; }
+  body.pet-dead #pet-mouth { d: path("M 58 100 Q 70 92 82 100"); }
+
+  #pet-poop-layer { position: absolute; inset: 0; pointer-events: none; }
+  .pet-poop {
+    position: absolute;
+    font-size: 20px;
+    cursor: pointer;
+    pointer-events: auto;
+    animation: art-in 0.4s ease-out;
+  }
+
+  #pet-name-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  #pet-name { font-size: 20px; font-weight: 800; }
+  #pet-rename-btn {
+    background: none; border: none; color: var(--text-dim);
+    font-size: 11px; cursor: pointer; text-decoration: underline;
+    -webkit-app-region: no-drag;
+  }
+  #pet-craving {
+    font-size: 13px;
+    color: var(--indigo);
+    font-weight: 600;
+    margin-bottom: 16px;
+    text-align: center;
+    min-height: 18px;
+  }
+  #pet-stats { width: 100%; max-width: 280px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+  .pet-stat { display: flex; align-items: center; gap: 10px; }
+  .pet-stat-label { font-size: 12px; color: var(--text-dim); width: 52px; }
+  .pet-bar { flex: 1; height: 10px; background: var(--divider); border-radius: 5px; overflow: hidden; }
+  .pet-bar-fill { height: 100%; background: var(--indigo); border-radius: 5px; transition: width 0.5s, background 0.5s; }
+  .pet-bar-fill.low { background: var(--bad); }
+  #pet-actions { display: flex; gap: 10px; }
+  #pet-dead-msg { margin-top: 16px; font-size: 13px; color: var(--text-dim); text-align: center; max-width: 260px; }
+
+  /* ---- Music Pet end ---- */
+  #heatmap {
+    display: grid;
+    grid-template-columns: repeat(24, 1fr);
+    gap: 2px;
+  }
+  .hm-cell {
+    aspect-ratio: 1;
+    border-radius: 2px;
+    background: var(--divider);
+  }
+  #heatmap-legend {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    justify-content: flex-end;
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 8px;
+  }
+  .hm-legend-cells { display: inline-flex; gap: 2px; }
+  .hm-legend-cells span { width: 10px; height: 10px; border-radius: 2px; }
+
+  /* ---- Album gallery ---- */
+  #album-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+    gap: 8px;
+  }
+  .album-cell {
+    aspect-ratio: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg);
+    position: relative;
+  }
+  .album-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .album-cell .album-fallback {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-dim); font-size: 20px;
+  }
+
+  /* ---- Artist spotlight ---- */
+  #spotlight-content .spot-artist { font-size: 22px; font-weight: 800; color: var(--text); }
+  #spotlight-content .spot-meta { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
+  #spotlight-content .spot-song { font-size: 13px; color: var(--indigo); margin-top: 6px; font-weight: 600; }
+
+  /* ---- Play count goal ---- */
+  #playcount-content .pc-song { font-size: 15px; font-weight: 700; color: var(--text); }
+  #playcount-content .pc-count { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
+  #playcount-content .pc-goal { font-size: 13px; color: var(--good); margin-top: 6px; font-weight: 600; }
+
   /* ---- Listening party feed ---- */
   #party-feed { display: flex; flex-direction: column; gap: 8px; }
   .party-empty { font-size: 13px; color: var(--text-dim); }
@@ -2046,6 +2251,7 @@
     <button class="tab-btn" id="tab-btn-wrapped">Wrapped</button>
     <button class="tab-btn" id="tab-btn-share">Share</button>
     <button class="tab-btn" id="tab-btn-recs">For You</button>
+    <button class="tab-btn" id="tab-btn-pet">Pet</button>
     <button class="tab-btn" id="tab-btn-settings">Settings</button>
     <button class="tab-btn" id="tab-btn-dev" style="display: none;">Dev</button>
   </div>
@@ -2082,6 +2288,11 @@
         <span id="time-elapsed">0:00</span>
         <span id="time-remaining">&minus;0:00</span>
       </div>
+    </div>
+
+    <!-- Global now-playing ticker: scrolls what everyone's playing right now -->
+    <div id="ticker-wrap" style="display:none;">
+      <div id="ticker-track"></div>
     </div>
 
     <!-- Fun buttons: each surprises with something different -->
@@ -2163,6 +2374,23 @@
       <div class="wrapped-card"><div class="wrapped-card-title">Top songs</div><div class="wrapped-rank-list" id="wrapped-top-songs"></div></div>
       <div class="wrapped-card"><div class="wrapped-card-title">Top artists</div><div class="wrapped-rank-list" id="wrapped-top-artists"></div></div>
       <div class="wrapped-card"><div class="wrapped-card-title">Fun facts</div><div class="wrapped-highlight" id="wrapped-fun-facts"></div></div>
+      <div class="wrapped-card" id="spotlight-card" style="display:none;">
+        <div class="wrapped-card-title">Artist spotlight</div>
+        <div id="spotlight-content"></div>
+      </div>
+      <div class="wrapped-card" id="playcount-card" style="display:none;">
+        <div class="wrapped-card-title">Play count goal</div>
+        <div id="playcount-content"></div>
+      </div>
+      <div class="wrapped-card">
+        <div class="wrapped-card-title">Listening heatmap</div>
+        <div id="heatmap"></div>
+        <div id="heatmap-legend">Less <span class="hm-legend-cells"></span> More</div>
+      </div>
+      <div class="wrapped-card">
+        <div class="wrapped-card-title">Recent albums</div>
+        <div id="album-gallery"></div>
+      </div>
       <div class="wrapped-card">
         <div class="wrapped-card-title">Listening party</div>
         <div id="party-feed"><div class="party-empty">No one else is listening right now.</div></div>
@@ -2226,6 +2454,108 @@
       Play more music to get recommendations.<br>We need at least 10 songs to find patterns.
     </div>
     <div id="recs-list"></div>
+  </div>
+
+  <div id="view-pet">
+    <div id="pet-stage">
+      <div id="pet-poop-layer"></div>
+      <div id="pet-creature">
+        <svg viewBox="0 0 140 140" width="150" height="150">
+          <!-- ears -->
+          <circle class="pet-ear" cx="38" cy="34" r="16"/>
+          <circle class="pet-ear" cx="102" cy="34" r="16"/>
+          <circle class="pet-ear-inner" cx="38" cy="34" r="8"/>
+          <circle class="pet-ear-inner" cx="102" cy="34" r="8"/>
+          <!-- head -->
+          <ellipse id="pet-body" cx="70" cy="72" rx="46" ry="42"/>
+          <!-- snout -->
+          <ellipse class="pet-snout" cx="70" cy="88" rx="24" ry="18"/>
+          <ellipse class="pet-nose" cx="70" cy="80" rx="7" ry="5"/>
+          <!-- mouth (expression changes by mood) -->
+          <path id="pet-mouth" d="M 58 96 Q 70 104 82 96" fill="none" stroke-width="3" stroke-linecap="round"/>
+
+          <!-- shutter shades: a frame with horizontal slats -->
+          <g id="pet-shades">
+            <rect class="shade-frame" x="30" y="52" width="80" height="22" rx="4"/>
+            <rect class="shade-bridge" x="66" y="56" width="8" height="6"/>
+            <!-- slats -->
+            <line class="shade-slat" x1="33" y1="58" x2="63" y2="58"/>
+            <line class="shade-slat" x1="33" y1="63" x2="63" y2="63"/>
+            <line class="shade-slat" x1="33" y1="68" x2="63" y2="68"/>
+            <line class="shade-slat" x1="77" y1="58" x2="107" y2="58"/>
+            <line class="shade-slat" x1="77" y1="63" x2="107" y2="63"/>
+            <line class="shade-slat" x1="77" y1="68" x2="107" y2="68"/>
+          </g>
+          <!-- little eyes peeking (hidden when sad/dead via CSS) -->
+          <circle class="pet-eye-dot" cx="48" cy="63" r="2.5"/>
+          <circle class="pet-eye-dot" cx="92" cy="63" r="2.5"/>
+
+          <!-- Genre gear: only the matching one shows while vibing. Positioned
+               in front of the bear like he's holding/playing it. -->
+          <g id="pet-gear">
+            <!-- Hip-Hop/Rap: microphone with a gold chain -->
+            <g class="gear gear-hiphop">
+              <rect x="64" y="96" width="12" height="26" rx="6" fill="#2b2b2b"/>
+              <ellipse cx="70" cy="94" rx="9" ry="11" fill="#3a3a3a" stroke="#555" stroke-width="1.5"/>
+              <path d="M 50 118 Q 70 132 90 118" fill="none" stroke="#e8b923" stroke-width="3" stroke-dasharray="2 3"/>
+            </g>
+            <!-- Rock: red electric guitar -->
+            <g class="gear gear-rock">
+              <rect x="40" y="100" width="46" height="10" rx="3" transform="rotate(-25 63 105)" fill="#8a5a2b"/>
+              <ellipse cx="86" cy="118" rx="16" ry="13" fill="#c0392b" transform="rotate(-25 86 118)"/>
+              <circle cx="86" cy="118" r="4" fill="#1a1a1a"/>
+            </g>
+            <!-- Pop: sparkly star mic -->
+            <g class="gear gear-pop">
+              <rect x="65" y="98" width="10" height="24" rx="5" fill="#e84393"/>
+              <path d="M70 84 l3 7 8 1 -6 5 2 8 -7-4 -7 4 2-8 -6-5 8-1 z" fill="#ffd93b" stroke="#e6b800" stroke-width="0.8"/>
+            </g>
+            <!-- R&B/Soul: saxophone -->
+            <g class="gear gear-rbsoul">
+              <path d="M 66 96 L 66 116 Q 66 126 78 126 L 86 126" fill="none" stroke="#e0a021" stroke-width="6" stroke-linecap="round"/>
+              <ellipse cx="88" cy="124" rx="8" ry="6" fill="#e0a021"/>
+            </g>
+            <!-- Electronic: turntable -->
+            <g class="gear gear-electronic">
+              <rect x="48" y="104" width="44" height="20" rx="4" fill="#2b2b2b"/>
+              <circle cx="62" cy="114" r="7" fill="#444" stroke="#888" stroke-width="1.5"/>
+              <circle cx="62" cy="114" r="2" fill="#ffd93b"/>
+            </g>
+            <!-- Jazz: trumpet -->
+            <g class="gear gear-jazz">
+              <rect x="52" y="108" width="30" height="7" rx="3" fill="#e0a021"/>
+              <path d="M 80 104 L 92 100 L 92 122 L 80 118 Z" fill="#e0a021"/>
+            </g>
+            <!-- Classical: violin -->
+            <g class="gear gear-classical">
+              <ellipse cx="70" cy="116" rx="13" ry="17" fill="#8a3b1e"/>
+              <rect x="67" y="90" width="6" height="22" rx="2" fill="#5a2814"/>
+            </g>
+            <!-- Country: acoustic guitar -->
+            <g class="gear gear-country">
+              <ellipse cx="76" cy="118" rx="15" ry="13" fill="#d9a441" transform="rotate(-20 76 118)"/>
+              <circle cx="76" cy="118" r="5" fill="#7a5a20"/>
+              <rect x="44" y="100" width="40" height="7" rx="2" transform="rotate(-20 63 103)" fill="#7a5a20"/>
+            </g>
+          </g>
+        </svg>
+      </div>
+    </div>
+    <div id="pet-name-row">
+      <span id="pet-name">Markus</span>
+      <button id="pet-rename-btn" title="Rename">edit</button>
+    </div>
+    <div id="pet-craving"></div>
+    <div id="pet-stats">
+      <div class="pet-stat"><span class="pet-stat-label">Hunger</span><div class="pet-bar"><div class="pet-bar-fill" id="pet-hunger"></div></div></div>
+      <div class="pet-stat"><span class="pet-stat-label">Clean</span><div class="pet-bar"><div class="pet-bar-fill" id="pet-clean"></div></div></div>
+      <div class="pet-stat"><span class="pet-stat-label">Happy</span><div class="pet-bar"><div class="pet-bar-fill" id="pet-happy"></div></div></div>
+    </div>
+    <div id="pet-actions">
+      <button class="pill-btn" id="pet-clean-btn">Clean</button>
+      <button class="pill-btn" id="pet-play-btn">Play</button>
+    </div>
+    <div id="pet-dead-msg" style="display:none;">Your pet has passed on from neglect. It'll be reborn at the start of next month.</div>
   </div>
 
   <div id="view-dev">
@@ -2319,6 +2649,13 @@
           <div class="row-sub">Skeuomorphic themes — wood, paper, cork &amp; more per tab</div>
         </div>
         <div class="toggle" id="toggle-textures" role="switch" aria-checked="false" tabindex="0"></div>
+      </div>
+      <div class="row">
+        <div>
+          <div class="row-label">Hide mature content</div>
+          <div class="row-sub">Keeps explicit titles off your public Discord status and the leaderboard. Your private history still records everything.</div>
+        </div>
+        <div class="toggle on" id="toggle-mature" role="switch" aria-checked="true" tabindex="0"></div>
       </div>
       <div class="row">
         <div>

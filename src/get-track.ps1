@@ -45,6 +45,7 @@ if ($null -eq $track) {
 $name = $track.Name
 $artist = $track.Artist
 $album = $track.Album
+$genre = $track.Genre
 $duration = $track.Duration          # total length in seconds
 $position = $itunes.PlayerPosition   # current position in seconds
 
@@ -73,6 +74,7 @@ $obj = [PSCustomObject]@{
     name        = $name
     artist      = $artist
     album       = $album
+    genre       = $genre
     duration    = $duration
     position    = $position
     artworkPath = $artworkPath

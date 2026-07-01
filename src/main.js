@@ -109,8 +109,225 @@ function runApp() {
   }
 
   let appSettings = loadSettings();
+  // Mature content filter defaults ON to protect privacy. Only apply the
+  // default when the key has never been set, so a user who deliberately turns
+  // it off stays off.
+  if (typeof appSettings.hideMatureContent === 'undefined') {
+    appSettings.hideMatureContent = true;
+  }
 
   ipcMain.handle('get-settings', () => appSettings);
+
+  // ============================================================
+  // MUSIC PET
+  // ============================================================
+  // A Tamagotchi-style pet fed by listening. Stats decay over real time;
+  // feeding requires listening to a song of the genre the pet currently
+  // craves (using the real Apple Music genre). Poop accumulates and must be
+  // cleaned by spending time on the app. Bad neglect kills the pet, but it's
+  // REVIVED FRESH on the first of each month. All state is local.
+  const petFile = path.join(app.getPath('userData'), 'pet.json');
+
+  // Genres the pet can crave. We normalize the current song's genre against
+  // these buckets so "Hip-Hop/Rap" matches a craving for "Hip-Hop".
+  // Song pool for bonus cravings: pulled from recent play history so
+  // Markus asks for songs you actually listen to.
+  function getRequestableSongs() {
+    const seen = new Set();
+    const songs = [];
+    for (let i = playHistory.length - 1; i >= 0 && songs.length < 20; i--) {
+      const e = playHistory[i];
+      if (!e.name) continue;
+      const k = `${e.name}||${e.artist}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      songs.push({ name: e.name, artist: e.artist });
+    }
+    return songs;
+  }
+
+  function pickSongRequest() {
+    const songs = getRequestableSongs();
+    if (songs.length === 0) return null;
+    return songs[Math.floor(Math.random() * songs.length)];
+  }
+
+  function defaultPet() {
+    return {
+      name: 'Markus',
+      bornMonth: getCurrentMonthKey(),
+      hunger: 80,
+      cleanliness: 100,
+      happiness: 90,
+      poop: 0,
+      alive: true,
+      // No genre craving -- uses time-based feeding + song requests instead.
+      songRequest: null,      // specific song Markus wants to hear (bonus)
+      lastUpdate: Date.now(),
+      lastFed: 0,
+      listenedSecsSinceLastFeed: 0, // accumulated listening time toward feeding
+      appSecondsToday: 0,
+    };
+  }
+
+  function loadPet() {
+    try {
+      if (fs.existsSync(petFile)) {
+        const p = JSON.parse(fs.readFileSync(petFile, 'utf8'));
+        return { ...defaultPet(), ...p };
+      }
+    } catch (e) { log.warn('Failed to load pet:', e.message); }
+    return defaultPet();
+  }
+
+  let pet = loadPet();
+
+  function savePet() {
+    try { fs.writeFileSync(petFile, JSON.stringify(pet), 'utf8'); }
+    catch (e) { log.warn('Failed to save pet:', e.message); }
+  }
+
+  // Apply time-based decay + monthly revival. Called before any read/action.
+  function updatePet() {
+    const now = Date.now();
+
+    // Monthly revival: if the calendar month differs from when the pet was
+    // born/revived, bring it back fresh.
+    const month = getCurrentMonthKey();
+    if (pet.bornMonth !== month) {
+      const keptName = pet.name;
+      pet = defaultPet();
+      pet.name = keptName;
+      pet.bornMonth = month;
+      savePet();
+      return;
+    }
+
+    if (!pet.alive) { pet.lastUpdate = now; return; }
+
+    const hoursElapsed = (now - pet.lastUpdate) / 3600000;
+    if (hoursElapsed <= 0) return;
+
+    // Decay rates per hour
+    pet.hunger = Math.max(0, pet.hunger - hoursElapsed * 4);        // hungry over ~a day
+    pet.cleanliness = Math.max(0, pet.cleanliness - hoursElapsed * 3);
+    // Poop accumulates roughly every 5 hours
+    const newPoop = Math.floor(hoursElapsed / 5);
+    if (newPoop > 0) pet.poop = Math.min(5, pet.poop + newPoop);
+
+    // Happiness follows hunger/cleanliness and suffers from poop
+    pet.happiness = Math.max(0, Math.min(100,
+      (pet.hunger + pet.cleanliness) / 2 - pet.poop * 8));
+
+    // Death from sustained neglect
+    if (pet.hunger <= 0 && pet.cleanliness <= 0) {
+      pet.alive = false;
+      pet.happiness = 0;
+    }
+
+    pet.lastUpdate = now;
+    savePet();
+  }
+
+  // Check if the current track matches Markus's song request (bonus feed).
+  function matchesSongRequest(track) {
+    if (!pet.songRequest || !track || !track.name) return false;
+    return track.name.toLowerCase() === pet.songRequest.name.toLowerCase();
+  }
+
+  // Called from the poll loop when a song is being listened to. If the genre
+  // matches the pet's craving, feed it and pick a new craving.
+  function petObserveListening(track) {
+    updatePet();
+    if (!pet.alive || !track || !track.name) return;
+
+    let changed = false;
+    const POLL_SEC = POLL_INTERVAL_MS / 1000;
+
+    // Time-based feeding: every 5 minutes of listening fills hunger a bit.
+    pet.listenedSecsSinceLastFeed = (pet.listenedSecsSinceLastFeed || 0) + POLL_SEC;
+    if (pet.listenedSecsSinceLastFeed >= 300) {
+      pet.listenedSecsSinceLastFeed = 0;
+      pet.hunger = Math.min(100, pet.hunger + 20);
+      pet.happiness = Math.min(100, pet.happiness + 5);
+      changed = true;
+      log.info('Pet fed by listening time: hunger=' + pet.hunger.toFixed(0));
+    }
+
+    // Song request bonus: big boost if playing the requested song.
+    if (pet.songRequest && track.name && 
+        track.name.toLowerCase() === pet.songRequest.name.toLowerCase()) {
+      pet.hunger = Math.min(100, pet.hunger + 30);
+      pet.happiness = Math.min(100, pet.happiness + 20);
+      pet.vibingGenre = 'request';
+      pet.vibingUntil = Date.now() + 20000;
+      pet.songRequest = null;
+      changed = true;
+      log.info('Pet song request satisfied: ' + track.name);
+    }
+
+    // Pick a new song request if none pending.
+    if (!pet.songRequest && playHistory.length > 0) {
+      const req = pickSongRequest();
+      if (req) { pet.songRequest = req; changed = true; }
+    }
+
+    // Always show gear + sway while a song plays.
+    // Use a simple keyword fallback since SMTC has no genre.
+    const nl = (track.name || '').toLowerCase();
+    let vg = 'hiphop';
+    if (nl.includes('rock') || nl.includes('guitar')) vg = 'rock';
+    else if (nl.includes('jazz') || nl.includes('blues')) vg = 'jazz';
+    else if (nl.includes('classic') || nl.includes('symphony')) vg = 'classical';
+    pet.vibingGenre = vg;
+    pet.vibingUntil = Date.now() + 20000;
+    changed = true;
+
+    if (changed) {
+      savePet();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('pet-changed');
+      }
+    }
+  }
+
+  ipcMain.handle('get-pet', () => {
+    updatePet();
+    // Compute whether he's actively grooving to a matched genre right now,
+    // so the renderer can show the gear + sway animation.
+    const vibing = pet.alive && pet.vibingUntil && Date.now() < pet.vibingUntil;
+    return { ...pet, isVibing: !!vibing, vibingGenre: vibing ? pet.vibingGenre : null };
+  });
+
+  // Clean one poop; requires a bit of accumulated app time as "effort".
+  ipcMain.handle('pet-clean', () => {
+    updatePet();
+    if (!pet.alive) return pet;
+    if (pet.poop > 0) {
+      pet.poop -= 1;
+      pet.cleanliness = Math.min(100, pet.cleanliness + 20);
+      pet.happiness = Math.min(100, pet.happiness + 5);
+      savePet();
+    }
+    return pet;
+  });
+
+  // Pet/play interaction — small happiness boost, once in a while.
+  ipcMain.handle('pet-play', () => {
+    updatePet();
+    if (!pet.alive) return pet;
+    pet.happiness = Math.min(100, pet.happiness + 8);
+    savePet();
+    return pet;
+  });
+
+  // Rename the pet.
+  ipcMain.handle('pet-rename', (_event, name) => {
+    updatePet();
+    const clean = String(name || '').trim().slice(0, 20);
+    if (clean) { pet.name = clean; savePet(); }
+    return pet;
+  });
 
   ipcMain.handle('set-setting', (_event, key, value) => {
     appSettings[key] = value;
@@ -154,6 +371,34 @@ function runApp() {
   // user ACTUALLY listened -- not the song's full length -- so skipping a
   // track after a few seconds only counts those few seconds, not the whole
   // song. Falls back to the track's own position if no explicit value given.
+  // ---- Mature content filter ----
+  // When enabled (setting), titles/artists matching explicit keywords are
+  // hidden from the PUBLIC surfaces (Discord Rich Presence, now-playing embed,
+  // and listening presence) to protect the user's privacy -- e.g. adult video
+  // titles from browser media. The content is still logged to LOCAL history
+  // (which is private). The public status just shows a neutral placeholder so
+  // there's no hint anything was filtered.
+  //
+  // Aggressive by design: better to occasionally hide an edgy song title than
+  // to leak explicit content. Matching is done on word-ish boundaries to cut
+  // down on false positives inside unrelated words.
+  const MATURE_KEYWORDS = [
+    'porn', 'xxx', 'nsfw', 'hentai', 'sex', 'nude', 'naked', 'onlyfans',
+    'pornhub', 'xvideos', 'xhamster', 'brazzers', 'redtube', 'youporn',
+    'blowjob', 'handjob', 'anal', 'creampie', 'cumshot', 'orgasm', 'orgy',
+    'masturbat', 'fetish', 'bdsm', 'milf', 'dildo', 'vibrator', 'escort',
+    'camgirl', 'stripper', 'strip tease', 'boobs', 'tits', 'pussy', 'cock',
+    'dick', 'cum', 'horny', 'erotic', 'erotica', 'fuck me', 'gangbang',
+    'threesome', 'deepthroat', 'bukkake', 'hardcore porn', 'softcore',
+    'lesbian porn', 'gay porn', 'sextape', 'sex tape', 'adult film',
+  ];
+
+  function isMatureContent(track) {
+    if (!track) return false;
+    const haystack = `${track.name || ''} ${track.artist || ''} ${track.album || ''}`.toLowerCase();
+    return MATURE_KEYWORDS.some((kw) => haystack.includes(kw));
+  }
+
   function recordPlay(track, listenedSeconds) {
     if (!track || !track.name) return;
     const listened = typeof listenedSeconds === 'number'
@@ -1153,6 +1398,23 @@ function runApp() {
       return true;
     }
 
+    // Mature content filter: if enabled and this title looks explicit, show a
+    // neutral placeholder on Discord instead of the real title -- no hint that
+    // anything was filtered, to protect the user's privacy.
+    if (appSettings.hideMatureContent && isMatureContent(track)) {
+      try {
+        await rpc.user.setActivity({
+          details: 'Listening privately',
+          state: '\u200b',
+          largeImageKey: 'app_logo',
+          instance: false,
+        });
+      } catch (e) {
+        log.warn('setActivity (mature placeholder) failed:', e.message);
+      }
+      return true;
+    }
+
     const now = Date.now();
     const startTimestamp = Math.floor(now - track.position * 1000);
     const endTimestamp = Math.floor(now + (track.duration - track.position) * 1000);
@@ -1266,6 +1528,9 @@ function runApp() {
               currentSongTrack.artist === track.artist;
             if (sameSongAsTracked) {
               currentSongListenedSec += cappedSec;
+              // Let the pet observe what's playing (feeds it if the genre
+              // matches its craving). Cheap + rate-limited internally.
+              try { petObserveListening(track); } catch (e) {}
               // Never count more than the song's own length for a single play
               // (a loop registers as a separate play via rewind detection).
               const len = currentSongTrack.duration || 0;
@@ -1333,7 +1598,9 @@ function runApp() {
           // Discord's edit rate limit for no benefit. The embed thumbnail
           // uses the iTunes Search API (works from name+artist) rather than
           // the local artwork file, which is usually empty for Apple Music.
-          if (isNewEvent) {
+          const matureHidden = appSettings.hideMatureContent && isMatureContent(track);
+
+          if (isNewEvent && !matureHidden) {
             fetchiTunesArtworkUrl(track.name, track.artist)
               .then((embedArt) => {
                 postNowPlayingEmbed(track, embedArt);
@@ -1348,17 +1615,23 @@ function runApp() {
                 }
               })
               .catch((e) => log.warn('Now-playing embed failed:', e.message));
+          } else if (isNewEvent && matureHidden) {
+            // Mature content: clear any existing embed so the last (clean)
+            // song doesn't linger publicly, and don't post the explicit one.
+            clearNowPlayingEmbed().catch(() => {});
           }
 
           updateTrayTooltip(`${track.state === 'playing' ? '▶' : '⏸'} ${track.name} — ${track.artist}`);
-          log.info('Now:', track.state, track.name, '-', track.artist);
+          log.info('Now:', track.state, track.name, '-', track.artist, 'genre:', track.genre);
+          // Feed the pet whenever the song changes -- fires reliably here.
+          try { if (track.state === 'playing') petObserveListening(track); } catch (e) {}
 
           // Update listening presence (for the "listening party" feature).
           // Only when actually playing and the user has a username + sync on.
-          // Fire-and-forget; failures (e.g. Firestore blocked on school wifi)
-          // are silently ignored so they never disrupt playback.
+          // Mature content is kept off presence too. Fire-and-forget; failures
+          // (e.g. Firestore blocked on school wifi) are silently ignored.
           if (isNewEvent && username && enabled) {
-            if (track.state === 'playing') {
+            if (track.state === 'playing' && !matureHidden) {
               setFirestorePresence(username, { song: track.name, artist: track.artist })
                 .catch(() => {});
             } else {
@@ -2089,6 +2362,84 @@ function runApp() {
     }
   });
 
+  // ---- Listening heatmap ----
+  // Returns a 7x24 grid (day-of-week x hour) of play counts, so the renderer
+  // can draw a heatmap of when the user listens most.
+  ipcMain.handle('get-heatmap', () => {
+    const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
+    let max = 0;
+    for (const e of playHistory) {
+      const d = new Date(e.timestamp);
+      const day = d.getDay();
+      const hour = d.getHours();
+      grid[day][hour]++;
+      if (grid[day][hour] > max) max = grid[day][hour];
+    }
+    return { grid, max };
+  });
+
+  // ---- Album art gallery ----
+  // Returns recently-played unique albums (name + artist), newest first, for
+  // a cover grid. Artwork URLs are fetched client-side via the iTunes lookup.
+  ipcMain.handle('get-recent-albums', () => {
+    const seen = new Set();
+    const albums = [];
+    for (let i = playHistory.length - 1; i >= 0 && albums.length < 24; i--) {
+      const e = playHistory[i];
+      const key = `${e.album || e.name}||${e.artist}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      albums.push({ name: e.name, artist: e.artist, album: e.album });
+    }
+    return albums;
+  });
+
+  // ---- Artist spotlight ----
+  // Returns the user's top artist over the last 7 days with a play count and
+  // their most-played song by that artist, for a rotating spotlight card.
+  ipcMain.handle('get-artist-spotlight', () => {
+    const weekAgo = Date.now() - 7 * 86400000;
+    const artistCounts = {};
+    const songByArtist = {};
+    for (const e of playHistory) {
+      if (e.timestamp < weekAgo) continue;
+      const a = e.artist || 'Unknown';
+      artistCounts[a] = (artistCounts[a] || 0) + 1;
+      if (!songByArtist[a]) songByArtist[a] = {};
+      const s = e.name || 'Unknown';
+      songByArtist[a][s] = (songByArtist[a][s] || 0) + 1;
+    }
+    const top = Object.entries(artistCounts).sort((a, b) => b[1] - a[1])[0];
+    if (!top) return null;
+    const [artist, count] = top;
+    const songs = songByArtist[artist] || {};
+    const topSong = Object.entries(songs).sort((a, b) => b[1] - a[1])[0];
+    return { artist, count, topSong: topSong ? topSong[0] : null };
+  });
+
+  // ---- Play-count goals ----
+  // For the current song (if any), returns how many times it's been played and
+  // how close it is to becoming the user's most-played song ever.
+  ipcMain.handle('get-play-count-goal', () => {
+    if (!currentSongTrack) return null;
+    const counts = {};
+    let maxCount = 0;
+    for (const e of playHistory) {
+      const k = `${e.name}||${e.artist}`;
+      counts[k] = (counts[k] || 0) + 1;
+      if (counts[k] > maxCount) maxCount = counts[k];
+    }
+    const curKey = `${currentSongTrack.name}||${currentSongTrack.artist}`;
+    const curCount = counts[curKey] || 0;
+    return {
+      song: currentSongTrack.name,
+      artist: currentSongTrack.artist,
+      count: curCount,
+      recordCount: maxCount,
+      toRecord: Math.max(0, maxCount - curCount + 1),
+    };
+  });
+
   ipcMain.handle('get-daily-goal', () => {
     const now = new Date();
     const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
@@ -2129,17 +2480,28 @@ function runApp() {
       else run = 1;
     }
 
-    // Current streak working backwards from today or yesterday
+    // Current streak working backwards from today or yesterday. A "streak
+    // freeze" allows ONE missed day without breaking the streak (like a grace
+    // day), so a single busy day doesn't wipe a long run. The freeze can only
+    // be used once per streak.
     let current = 0;
+    let freezeUsed = false;
     let checkMs = days.has(todayKey) ? new Date(todayKey).getTime() : new Date(todayKey).getTime() - 86400000;
     while (true) {
       const checkKey = new Date(checkMs).toISOString().slice(0, 10);
-      if (!days.has(checkKey)) break;
-      current++;
-      checkMs -= 86400000;
+      if (days.has(checkKey)) {
+        current++;
+        checkMs -= 86400000;
+      } else if (!freezeUsed && current > 0) {
+        // Spend the one freeze on this gap and keep going.
+        freezeUsed = true;
+        checkMs -= 86400000;
+      } else {
+        break;
+      }
     }
 
-    return { current, longest, todayCount };
+    return { current, longest, todayCount, freezeUsed };
   });
 
   // ---- Recommendations ----
@@ -2596,6 +2958,40 @@ function runApp() {
     // with popups for badges they earned long ago. New unlocks during the
     // session will still notify normally.
     try { checkAchievements({ silent: true }); } catch (e) { log.warn('Startup achievement check failed:', e.message); }
+
+    // Monthly recap: if a new month has started since the user last saw a
+    // recap AND they have listening history from last month, pop a friendly
+    // "your Wrapped is ready" notification. Tracked via a setting so it fires
+    // once per month.
+    try {
+      const nowMonth = getCurrentMonthKey();
+      if (appSettings.lastRecapMonth !== nowMonth) {
+        // Was there any play last month?
+        const lastMonthDate = new Date();
+        lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
+        const lastMonthKey = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
+        const hadLastMonth = playHistory.some((e) => {
+          const d = new Date(e.timestamp);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === lastMonthKey;
+        });
+        // Only notify if we've seen a previous recap month before (avoids
+        // firing on the very first launch) and there's data to recap.
+        if (appSettings.lastRecapMonth && hadLastMonth) {
+          const { Notification } = require('electron');
+          if (Notification.isSupported()) {
+            new Notification({
+              title: 'Your Wrapped is ready!',
+              body: 'A new month began — check the Wrapped tab to see last month\'s listening.',
+              icon: path.join(__dirname, '..', 'assets', 'tray-icon.png'),
+            }).show();
+          }
+        }
+        appSettings.lastRecapMonth = nowMonth;
+        saveSettings(appSettings);
+      }
+    } catch (e) {
+      log.warn('Monthly recap check failed:', e.message);
+    }
 
     // Check for updates ~5s after launch, then silently every few hours.
     // Using checkForUpdates() (not checkForUpdatesAndNotify) since we have

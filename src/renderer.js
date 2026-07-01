@@ -396,16 +396,33 @@ function renderLeaderboard(entries) {
     if (currentUsername && entry.username === currentUsername) {
       row.classList.add('me');
     }
+    const favd = isFavorite(entry.username);
+    if (favd) row.classList.add('favorited');
     row.innerHTML = `
       <span class="lb-rank">${i + 1}</span>
       <span class="lb-name"></span>
       <span class="lb-time"></span>
+      <button class="lb-fav ${favd ? 'favorited' : ''}" title="Favorite">${favd ? '\u2605' : '\u2606'}</button>
     `;
     // Set text via textContent (not innerHTML) so a username can never be
     // interpreted as markup -- usernames are arbitrary user input from
     // potentially many different people, shared across everyone's window.
     row.querySelector('.lb-name').textContent = entry.username || 'Unknown';
     row.querySelector('.lb-time').textContent = formatListeningTime(entry.totalSeconds);
+    // Don't let a user favorite themselves.
+    const favBtn = row.querySelector('.lb-fav');
+    if (entry.username === currentUsername) {
+      favBtn.style.visibility = 'hidden';
+    } else {
+      favBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleFavorite(entry.username);
+        const nowFav = isFavorite(entry.username);
+        favBtn.classList.toggle('favorited', nowFav);
+        favBtn.textContent = nowFav ? '\u2605' : '\u2606';
+        row.classList.toggle('favorited', nowFav);
+      });
+    }
     // Stagger each row's entrance slightly so the list cascades in instead of
     // appearing all at once. Capped so a long list doesn't take forever.
     row.classList.add('row-animate');
@@ -511,6 +528,7 @@ function showTab(tab) {
   document.body.classList.toggle('tab-wrapped', tab === 'wrapped');
   document.body.classList.toggle('tab-share', tab === 'share');
   document.body.classList.toggle('tab-recs', tab === 'recs');
+  document.body.classList.toggle('tab-pet', tab === 'pet');
   document.body.classList.toggle('tab-settings', tab === 'settings');
   elTabBtnNowPlaying.classList.toggle('active', tab === 'now-playing');
   elTabBtnLeaderboard.classList.toggle('active', tab === 'leaderboard');
@@ -518,6 +536,7 @@ function showTab(tab) {
   elTabBtnWrapped.classList.toggle('active', tab === 'wrapped');
   elTabBtnShare.classList.toggle('active', tab === 'share');
   elTabBtnRecs.classList.toggle('active', tab === 'recs');
+  if (elTabBtnPet) elTabBtnPet.classList.toggle('active', tab === 'pet');
   elTabBtnSettings.classList.toggle('active', tab === 'settings');
 
   if (tab === 'leaderboard') {
@@ -543,7 +562,12 @@ function showTab(tab) {
   if (tab === 'wrapped') loadWrapped();
   if (tab === 'share') loadShareCard();
   if (tab === 'recs') loadRecommendations();
+  if (tab === 'pet') { loadPet(); if (!petRefreshTimer) petRefreshTimer = setInterval(loadPet, 15000); }
+  else if (petRefreshTimer) { clearInterval(petRefreshTimer); petRefreshTimer = null; }
 }
+
+const elTabBtnPet = document.getElementById('tab-btn-pet');
+let petRefreshTimer = null;
 
 elTabBtnNowPlaying.addEventListener('click', () => showTab('now-playing'));
 elTabBtnLeaderboard.addEventListener('click', () => showTab('leaderboard'));
@@ -551,6 +575,7 @@ elTabBtnDev.addEventListener('click', () => showTab('dev'));
 elTabBtnWrapped.addEventListener('click', () => showTab('wrapped'));
 elTabBtnShare.addEventListener('click', () => showTab('share'));
 elTabBtnRecs.addEventListener('click', () => showTab('recs'));
+if (elTabBtnPet) elTabBtnPet.addEventListener('click', () => showTab('pet'));
 elTabBtnSettings.addEventListener('click', () => showTab('settings'));
 
 // ---- Dev mode ----
@@ -1018,6 +1043,10 @@ async function loadWrapped() {
   loadDailyGoal();
   loadPartyFeed();
   loadHistory();
+  loadHeatmap();
+  loadAlbumGallery();
+  loadSpotlight();
+  loadPlayCountGoal();
 }
 
 async function renderWrapped(monthKey) {
@@ -1116,8 +1145,10 @@ window.musicToDiscord.onUpdateStatus((info) => {
 async function loadStreaks() {
   const data = await window.musicToDiscord.getStreaks();
   if (!data) return;
+  // A snowflake marks when the one-day "streak freeze" grace day is keeping
+  // the current streak alive.
   document.getElementById('streak-current').textContent =
-    data.current > 0 ? `${data.current}d` : '0';
+    data.current > 0 ? `${data.current}d${data.freezeUsed ? ' \u2744' : ''}` : '0';
   document.getElementById('streak-longest').textContent =
     data.longest > 0 ? `${data.longest}d` : '0';
   document.getElementById('streak-today').textContent = data.todayCount;
@@ -1126,6 +1157,105 @@ async function loadStreaks() {
 // ---- Daily listening goal (loaded as part of Wrapped) ----
 let goalInputWired = false;
 let goalCelebrated = false;
+
+// ---- Listening heatmap (loaded as part of Wrapped) ----
+async function loadHeatmap() {
+  const el = document.getElementById('heatmap');
+  if (!el) return;
+  const data = await window.musicToDiscord.getHeatmap();
+  if (!data) return;
+  const { grid, max } = data;
+  // Flatten to 7 rows x 24 cols; color intensity by count/max.
+  let html = '';
+  for (let day = 0; day < 7; day++) {
+    for (let hour = 0; hour < 24; hour++) {
+      const count = grid[day][hour];
+      const intensity = max > 0 ? count / max : 0;
+      const bg = intensity === 0
+        ? 'var(--divider)'
+        : `color-mix(in srgb, var(--indigo) ${Math.round(intensity * 100)}%, var(--divider))`;
+      html += `<div class="hm-cell" style="background:${bg}" title="${count} plays"></div>`;
+    }
+  }
+  el.innerHTML = html;
+  // Legend cells
+  const legend = document.querySelector('.hm-legend-cells');
+  if (legend) {
+    legend.innerHTML = [0, 0.25, 0.5, 0.75, 1].map((i) =>
+      `<span style="background:${i === 0 ? 'var(--divider)' : `color-mix(in srgb, var(--indigo) ${i * 100}%, var(--divider))`}"></span>`
+    ).join('');
+  }
+}
+
+// ---- Album gallery (loaded as part of Wrapped) ----
+async function loadAlbumGallery() {
+  const el = document.getElementById('album-gallery');
+  if (!el) return;
+  const albums = await window.musicToDiscord.getRecentAlbums();
+  if (!albums || albums.length === 0) {
+    el.innerHTML = '<div class="history-empty">No albums yet.</div>';
+    return;
+  }
+  // Render cells with fallback, then fetch art lazily.
+  el.innerHTML = albums.map((a, i) =>
+    `<div class="album-cell" id="album-cell-${i}" title="${esc(a.name)} — ${esc(a.artist)}"><div class="album-fallback">\u266b</div></div>`
+  ).join('');
+  // Fetch artwork for each via the same iTunes lookup used elsewhere. We reuse
+  // a client-side fetch to iTunes search directly (no bundled key needed).
+  albums.forEach(async (a, i) => {
+    const cell = document.getElementById(`album-cell-${i}`);
+    if (!cell) return;
+    try {
+      const q = encodeURIComponent(`${a.name} ${a.artist}`);
+      const res = await fetch(`https://itunes.apple.com/search?term=${q}&media=music&limit=1&entity=song`);
+      const json = await res.json();
+      const url = json.results && json.results[0] && json.results[0].artworkUrl100
+        ? json.results[0].artworkUrl100.replace('100x100bb', '200x200bb')
+        : null;
+      if (url) {
+        const img = new Image();
+        img.onload = () => { cell.innerHTML = ''; cell.appendChild(img); };
+        img.src = url;
+      }
+    } catch (e) { /* keep fallback */ }
+  });
+}
+
+// ---- Artist spotlight (loaded as part of Wrapped) ----
+async function loadSpotlight() {
+  const card = document.getElementById('spotlight-card');
+  const content = document.getElementById('spotlight-content');
+  if (!card) return;
+  const data = await window.musicToDiscord.getArtistSpotlight();
+  if (!data) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  content.innerHTML = `
+    <div class="spot-artist">${esc(data.artist)}</div>
+    <div class="spot-meta">${data.count} play${data.count === 1 ? '' : 's'} this week</div>
+    ${data.topSong ? `<div class="spot-song">Most played: ${esc(data.topSong)}</div>` : ''}
+  `;
+}
+
+// ---- Play count goal (loaded as part of Wrapped) ----
+async function loadPlayCountGoal() {
+  const card = document.getElementById('playcount-card');
+  const content = document.getElementById('playcount-content');
+  if (!card) return;
+  const data = await window.musicToDiscord.getPlayCountGoal();
+  if (!data || data.count === 0) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  let goalLine;
+  if (data.count >= data.recordCount) {
+    goalLine = 'This is your most-played song!';
+  } else {
+    goalLine = `${data.toRecord} more play${data.toRecord === 1 ? '' : 's'} to beat your record (${data.recordCount}).`;
+  }
+  content.innerHTML = `
+    <div class="pc-song">${esc(data.song)}</div>
+    <div class="pc-count">Played ${data.count} time${data.count === 1 ? '' : 's'}</div>
+    <div class="pc-goal">${goalLine}</div>
+  `;
+}
 
 // ---- Listening party feed (loaded as part of Wrapped) ----
 async function loadPartyFeed() {
@@ -1509,6 +1639,12 @@ window.musicToDiscord.getSettings().then(settings => {
   if (randomOn && typeof applyRandomLaunchTheme === 'function') {
     applyRandomLaunchTheme();
   }
+  // Load favorited users.
+  favoriteUsers = new Set((settings && settings.favoriteUsers) || []);
+
+  // Mature content filter: default ON unless explicitly turned off.
+  const matureOn = !settings || settings.hideMatureContent !== false;
+  applyMatureToggle(matureOn);
 });
 
 // Applies a random accent palette (used by "random theme on launch").
@@ -1569,6 +1705,27 @@ function applyClockStyle(style) {
   const cbtn = document.getElementById('export-csv-btn');
   if (jbtn) jbtn.addEventListener('click', () => doExport('json', jbtn));
   if (cbtn) cbtn.addEventListener('click', () => doExport('csv', cbtn));
+})();
+
+// Mature content filter toggle.
+const elToggleMature = document.getElementById('toggle-mature');
+function applyMatureToggle(on) {
+  if (elToggleMature) {
+    elToggleMature.classList.toggle('on', !!on);
+    elToggleMature.setAttribute('aria-checked', on ? 'true' : 'false');
+  }
+}
+(function initMatureToggle() {
+  if (!elToggleMature) return;
+  function toggle() {
+    const on = !elToggleMature.classList.contains('on');
+    applyMatureToggle(on);
+    window.musicToDiscord.setSetting('hideMatureContent', on);
+  }
+  elToggleMature.addEventListener('click', toggle);
+  elToggleMature.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+  });
 })();
 
 // Random theme on launch toggle.
@@ -2304,3 +2461,170 @@ function glitchEffect() {
     }
   }, 70);
 }
+
+// ================================================================
+// FRIEND FAVORITES
+// ================================================================
+// Users can star others on the leaderboard to highlight them. The list of
+// favorited usernames is stored locally via settings. Favorited users get a
+// green border on the leaderboard and are highlighted in the ticker.
+let favoriteUsers = new Set();
+
+function loadFavorites() {
+  window.musicToDiscord.getSettings().then((settings) => {
+    const list = (settings && settings.favoriteUsers) || [];
+    favoriteUsers = new Set(list);
+  });
+}
+function isFavorite(name) { return favoriteUsers.has(name); }
+function toggleFavorite(name) {
+  if (favoriteUsers.has(name)) favoriteUsers.delete(name);
+  else favoriteUsers.add(name);
+  window.musicToDiscord.setSetting('favoriteUsers', [...favoriteUsers]);
+}
+
+// ================================================================
+// GLOBAL NOW-PLAYING TICKER
+// ================================================================
+// Scrolls what everyone's currently listening to across the Now Playing
+// screen. Reuses the listening-party presence data. Favorited users are
+// highlighted. Hidden when nobody (or only you) is listening.
+(function initTicker() {
+  const wrap = document.getElementById('ticker-wrap');
+  const trackEl = document.getElementById('ticker-track');
+  if (!wrap || !trackEl) return;
+
+  async function refresh() {
+    try {
+      const data = await window.musicToDiscord.getListeningParty();
+      if (!data || data.total === 0) {
+        wrap.style.display = 'none';
+        return;
+      }
+      // Build one item per listener. Duplicate the sequence so the loop scroll
+      // (translateX -50%) is seamless.
+      const items = data.listeners.map((l) => {
+        const favClass = isFavorite(l.username) ? 'ticker-fav' : 'ticker-user';
+        const star = isFavorite(l.username) ? '\u2605 ' : '';
+        return `<span class="ticker-item"><span class="${favClass}">${star}${esc(l.username)}</span> \u2192 ${esc(l.song)}${l.artist ? ' \u2014 ' + esc(l.artist) : ''}</span>`;
+      }).join('');
+      trackEl.innerHTML = items + items; // duplicated for seamless loop
+      wrap.style.display = 'block';
+    } catch (e) {
+      wrap.style.display = 'none';
+    }
+  }
+
+  refresh();
+  setInterval(refresh, 20000);
+})();
+
+// ================================================================
+// MUSIC PET
+// ================================================================
+function renderPet(pet) {
+  if (!pet) return;
+  document.getElementById('pet-name').textContent = pet.name;
+
+  // Vibing state: show gear + sway when actively grooving to a matched genre.
+  const vibeClasses = ['vibe-hiphop', 'vibe-rock', 'vibe-pop', 'vibe-rbsoul',
+    'vibe-electronic', 'vibe-jazz', 'vibe-classical', 'vibe-country'];
+  document.body.classList.remove('pet-vibing', ...vibeClasses);
+  if (pet.isVibing && pet.vibingGenre) {
+    document.body.classList.add('pet-vibing');
+    const g = pet.vibingGenre.toLowerCase();
+    let cls = null;
+    if (g.includes('hip')) cls = 'vibe-hiphop';
+    else if (g.includes('rock')) cls = 'vibe-rock';
+    else if (g.includes('pop')) cls = 'vibe-pop';
+    else if (g.includes('r&b') || g.includes('soul')) cls = 'vibe-rbsoul';
+    else if (g.includes('electronic')) cls = 'vibe-electronic';
+    else if (g.includes('jazz')) cls = 'vibe-jazz';
+    else if (g.includes('classical')) cls = 'vibe-classical';
+    else if (g.includes('country')) cls = 'vibe-country';
+    if (cls) document.body.classList.add(cls);
+  }
+
+  // Mood classes on body
+  document.body.classList.remove('pet-happy', 'pet-sad', 'pet-sick', 'pet-dead');
+  if (!pet.alive) {
+    document.body.classList.add('pet-dead');
+  } else if (pet.cleanliness < 30) {
+    document.body.classList.add('pet-sick');
+  } else if (pet.happiness >= 70) {
+    document.body.classList.add('pet-happy');
+  } else if (pet.happiness < 40) {
+    document.body.classList.add('pet-sad');
+  }
+
+  // Craving / status line
+  const cravingEl = document.getElementById('pet-craving');
+  const deadMsg = document.getElementById('pet-dead-msg');
+  const actions = document.getElementById('pet-actions');
+  if (!pet.alive) {
+    cravingEl.textContent = '';
+    deadMsg.style.display = 'block';
+    actions.style.display = 'none';
+  } else {
+    deadMsg.style.display = 'none';
+    actions.style.display = 'flex';
+    if (pet.songRequest) {
+      cravingEl.textContent = `Wants to hear: "${pet.songRequest.name}" by ${pet.songRequest.artist}`;
+    } else if (pet.hunger < 60) {
+      cravingEl.textContent = 'Getting hungry — keep the music playing!';
+    } else {
+      cravingEl.textContent = 'Content — keep the music going!';
+    }
+  }
+
+  // Stat bars
+  setPetBar('pet-hunger', pet.hunger);
+  setPetBar('pet-clean', pet.cleanliness);
+  setPetBar('pet-happy', pet.happiness);
+
+  // Poop
+  const layer = document.getElementById('pet-poop-layer');
+  layer.innerHTML = '';
+  const positions = [[30, 130], [150, 120], [80, 145], [120, 60], [50, 50]];
+  for (let i = 0; i < (pet.poop || 0); i++) {
+    const p = document.createElement('div');
+    p.className = 'pet-poop';
+    p.textContent = '\ud83d\udca9';
+    const [x, y] = positions[i % positions.length];
+    p.style.left = `${x}px`;
+    p.style.top = `${y}px`;
+    p.title = 'Click to clean';
+    p.addEventListener('click', () => {
+      window.musicToDiscord.petClean().then(renderPet);
+    });
+    layer.appendChild(p);
+  }
+}
+
+function setPetBar(id, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.width = `${Math.max(0, Math.min(100, val))}%`;
+  el.classList.toggle('low', val < 30);
+}
+
+function loadPet() {
+  window.musicToDiscord.getPet().then(renderPet);
+}
+
+(function initPetControls() {
+  const cleanBtn = document.getElementById('pet-clean-btn');
+  const playBtn = document.getElementById('pet-play-btn');
+  const renameBtn = document.getElementById('pet-rename-btn');
+  if (cleanBtn) cleanBtn.addEventListener('click', () => window.musicToDiscord.petClean().then(renderPet));
+  if (playBtn) playBtn.addEventListener('click', () => window.musicToDiscord.petPlay().then(renderPet));
+  if (renameBtn) renameBtn.addEventListener('click', () => {
+    const name = prompt('Name your pet:');
+    if (name) window.musicToDiscord.petRename(name).then(renderPet);
+  });
+})();
+
+// Refresh the pet live when the main process feeds it (genre matched).
+window.musicToDiscord.onPetChanged(() => {
+  if (document.body.classList.contains('tab-pet')) loadPet();
+});
