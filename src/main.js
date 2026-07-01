@@ -48,9 +48,6 @@ function runApp() {
     unbanUsername,
     isUsernameBanned,
     listBannedUsernames,
-    setPresence: setFirestorePresence,
-    clearPresence: clearFirestorePresence,
-    listPresence,
   } = require('./firestore');
 
   // ---- CONFIG ----
@@ -109,314 +106,8 @@ function runApp() {
   }
 
   let appSettings = loadSettings();
-  // Mature content filter defaults ON to protect privacy. Only apply the
-  // default when the key has never been set, so a user who deliberately turns
-  // it off stays off.
-  if (typeof appSettings.hideMatureContent === 'undefined') {
-    appSettings.hideMatureContent = true;
-  }
 
   ipcMain.handle('get-settings', () => appSettings);
-
-  // ============================================================
-  // MUSIC PET
-  // ============================================================
-  // A Tamagotchi-style pet fed by listening. Stats decay over real time;
-  // feeding requires listening to a song of the genre the pet currently
-  // craves (using the real Apple Music genre). Poop accumulates and must be
-  // cleaned by spending time on the app. Bad neglect kills the pet, but it's
-  // REVIVED FRESH on the first of each month. All state is local.
-  const petFile = path.join(app.getPath('userData'), 'pet.json');
-
-  // Genres the pet can crave. We normalize the current song's genre against
-  // these buckets so "Hip-Hop/Rap" matches a craving for "Hip-Hop".
-  // Song pool for bonus cravings: pulled from recent play history so
-  // Markus asks for songs you actually listen to.
-  function getRequestableSongs() {
-    const seen = new Set();
-    const songs = [];
-    for (let i = playHistory.length - 1; i >= 0 && songs.length < 20; i--) {
-      const e = playHistory[i];
-      if (!e.name) continue;
-      const k = `${e.name}||${e.artist}`;
-      if (seen.has(k)) continue;
-      seen.add(k);
-      songs.push({ name: e.name, artist: e.artist });
-    }
-    return songs;
-  }
-
-  function pickSongRequest() {
-    const songs = getRequestableSongs();
-    if (songs.length === 0) return null;
-    return songs[Math.floor(Math.random() * songs.length)];
-  }
-
-  function defaultPet() {
-    return {
-      name: 'Markus',
-      bornMonth: getCurrentMonthKey(),
-      hunger: 80,
-      cleanliness: 100,
-      happiness: 90,
-      poop: 0,
-      alive: true,
-      // No genre craving -- uses time-based feeding + song requests instead.
-      songRequest: null,      // specific song Markus wants to hear (bonus)
-      lastUpdate: Date.now(),
-      lastFed: 0,
-      listenedSecsSinceLastFeed: 0, // accumulated listening time toward feeding
-      appSecondsToday: 0,
-    };
-  }
-
-  function loadPet() {
-    try {
-      if (fs.existsSync(petFile)) {
-        const p = JSON.parse(fs.readFileSync(petFile, 'utf8'));
-        return { ...defaultPet(), ...p };
-      }
-    } catch (e) { log.warn('Failed to load pet:', e.message); }
-    return defaultPet();
-  }
-
-  let pet = loadPet();
-
-  function savePet() {
-    try { fs.writeFileSync(petFile, JSON.stringify(pet), 'utf8'); }
-    catch (e) { log.warn('Failed to save pet:', e.message); }
-  }
-
-  // Apply time-based decay + monthly revival. Called before any read/action.
-  function updatePet() {
-    const now = Date.now();
-
-    // Monthly revival: if the calendar month differs from when the pet was
-    // born/revived, bring it back fresh.
-    const month = getCurrentMonthKey();
-    if (pet.bornMonth !== month) {
-      const keptName = pet.name;
-      pet = defaultPet();
-      pet.name = keptName;
-      pet.bornMonth = month;
-      savePet();
-      return;
-    }
-
-    if (!pet.alive) { pet.lastUpdate = now; return; }
-
-    const hoursElapsed = (now - pet.lastUpdate) / 3600000;
-    if (hoursElapsed <= 0) return;
-
-    // Decay rates per hour
-    pet.hunger = Math.max(0, pet.hunger - hoursElapsed * 4);        // hungry over ~a day
-    pet.cleanliness = Math.max(0, pet.cleanliness - hoursElapsed * 3);
-    // Poop accumulates roughly every 5 hours
-    const newPoop = Math.floor(hoursElapsed / 5);
-    if (newPoop > 0) pet.poop = Math.min(5, pet.poop + newPoop);
-
-    // Happiness follows hunger/cleanliness and suffers from poop
-    pet.happiness = Math.max(0, Math.min(100,
-      (pet.hunger + pet.cleanliness) / 2 - pet.poop * 8));
-
-    // Death from sustained neglect
-    if (pet.hunger <= 0 && pet.cleanliness <= 0) {
-      pet.alive = false;
-      pet.happiness = 0;
-    }
-
-    pet.lastUpdate = now;
-    savePet();
-  }
-
-  // Check if the current track matches Markus's song request (bonus feed).
-  function matchesSongRequest(track) {
-    if (!pet.songRequest || !track || !track.name) return false;
-    return track.name.toLowerCase() === pet.songRequest.name.toLowerCase();
-  }
-
-  // Called from the poll loop when a song is being listened to. If the genre
-  // matches the pet's craving, feed it and pick a new craving.
-  function petObserveListening(track) {
-    updatePet();
-    if (!pet.alive || !track || !track.name) return;
-
-    let changed = false;
-    const POLL_SEC = POLL_INTERVAL_MS / 1000;
-
-    // Time-based feeding: every 5 minutes of listening fills hunger a bit.
-    pet.listenedSecsSinceLastFeed = (pet.listenedSecsSinceLastFeed || 0) + POLL_SEC;
-    if (pet.listenedSecsSinceLastFeed >= 300) {
-      pet.listenedSecsSinceLastFeed = 0;
-      pet.hunger = Math.min(100, pet.hunger + 20);
-      pet.happiness = Math.min(100, pet.happiness + 5);
-      changed = true;
-      log.info('Pet fed by listening time: hunger=' + pet.hunger.toFixed(0));
-    }
-
-    // Song request bonus: big boost if playing the requested song.
-    if (pet.songRequest && track.name && 
-        track.name.toLowerCase() === pet.songRequest.name.toLowerCase()) {
-      pet.hunger = Math.min(100, pet.hunger + 30);
-      pet.happiness = Math.min(100, pet.happiness + 20);
-      pet.vibingGenre = 'request';
-      pet.vibingUntil = Date.now() + 20000;
-      pet.songRequest = null;
-      changed = true;
-      log.info('Pet song request satisfied: ' + track.name);
-    }
-
-    // Pick a new song request if none pending.
-    if (!pet.songRequest && playHistory.length > 0) {
-      const req = pickSongRequest();
-      if (req) { pet.songRequest = req; changed = true; }
-    }
-
-    // Always show gear + sway while a song plays.
-    // Use a simple keyword fallback since SMTC has no genre.
-    const nl = (track.name || '').toLowerCase();
-    let vg = 'hiphop';
-    if (nl.includes('rock') || nl.includes('guitar')) vg = 'rock';
-    else if (nl.includes('jazz') || nl.includes('blues')) vg = 'jazz';
-    else if (nl.includes('classic') || nl.includes('symphony')) vg = 'classical';
-    pet.vibingGenre = vg;
-    pet.vibingUntil = Date.now() + 20000;
-    changed = true;
-
-    if (changed) {
-      savePet();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('pet-changed');
-      }
-    }
-  }
-
-  ipcMain.handle('get-pet', () => {
-    updatePet();
-    // Compute whether he's actively grooving to a matched genre right now,
-    // so the renderer can show the gear + sway animation.
-    const vibing = pet.alive && pet.vibingUntil && Date.now() < pet.vibingUntil;
-    return { ...pet, isVibing: !!vibing, vibingGenre: vibing ? pet.vibingGenre : null };
-  });
-
-  // Clean one poop; requires a bit of accumulated app time as "effort".
-  ipcMain.handle('pet-clean', () => {
-    updatePet();
-    if (!pet.alive) return pet;
-    if (pet.poop > 0) {
-      pet.poop -= 1;
-      pet.cleanliness = Math.min(100, pet.cleanliness + 20);
-      pet.happiness = Math.min(100, pet.happiness + 5);
-      savePet();
-    }
-    return pet;
-  });
-
-  // Pet/play interaction — small happiness boost, once in a while.
-  ipcMain.handle('pet-play', () => {
-    updatePet();
-    if (!pet.alive) return pet;
-    pet.happiness = Math.min(100, pet.happiness + 8);
-    savePet();
-    return pet;
-  });
-
-  // Rename the pet.
-  ipcMain.handle('pet-rename', (_event, name) => {
-    updatePet();
-    const clean = String(name || '').trim().slice(0, 20);
-    if (clean) { pet.name = clean; savePet(); }
-    return pet;
-  });
-
-  ipcMain.handle('set-setting', (_event, key, value) => {
-    appSettings[key] = value;
-    saveSettings(appSettings);
-    // Push to renderer so it can apply immediately
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('setting-changed', { key, value });
-    }
-    return true;
-  });
-  // Saved to disk at %APPDATA%/musictodiscord/play-history.json
-  // Each entry: { name, artist, album, timestamp (ms), duration (s) }
-  // Kept separate from Firestore -- this is purely local, richer data
-  // used for the Wrapped feature. Capped at 10,000 entries.
-  const historyFile = path.join(app.getPath('userData'), 'play-history.json');
-
-  function loadHistory() {
-    try {
-      if (fs.existsSync(historyFile)) {
-        const parsed = JSON.parse(fs.readFileSync(historyFile, 'utf8'));
-        return Array.isArray(parsed) ? parsed : [];
-      }
-    } catch (e) {
-      log.warn('Failed to load play history:', e.message);
-    }
-    return [];
-  }
-
-  let playHistory = loadHistory();
-
-  function saveHistory() {
-    try {
-      if (playHistory.length > 10000) playHistory = playHistory.slice(-10000);
-      fs.writeFileSync(historyFile, JSON.stringify(playHistory), 'utf8');
-    } catch (e) {
-      log.warn('Failed to save play history:', e.message);
-    }
-  }
-
-  // Records a completed (or skipped) play. listenedSeconds is how long the
-  // user ACTUALLY listened -- not the song's full length -- so skipping a
-  // track after a few seconds only counts those few seconds, not the whole
-  // song. Falls back to the track's own position if no explicit value given.
-  // ---- Mature content filter ----
-  // When enabled (setting), titles/artists matching explicit keywords are
-  // hidden from the PUBLIC surfaces (Discord Rich Presence, now-playing embed,
-  // and listening presence) to protect the user's privacy -- e.g. adult video
-  // titles from browser media. The content is still logged to LOCAL history
-  // (which is private). The public status just shows a neutral placeholder so
-  // there's no hint anything was filtered.
-  //
-  // Aggressive by design: better to occasionally hide an edgy song title than
-  // to leak explicit content. Matching is done on word-ish boundaries to cut
-  // down on false positives inside unrelated words.
-  const MATURE_KEYWORDS = [
-    'porn', 'xxx', 'nsfw', 'hentai', 'sex', 'nude', 'naked', 'onlyfans',
-    'pornhub', 'xvideos', 'xhamster', 'brazzers', 'redtube', 'youporn',
-    'blowjob', 'handjob', 'anal', 'creampie', 'cumshot', 'orgasm', 'orgy',
-    'masturbat', 'fetish', 'bdsm', 'milf', 'dildo', 'vibrator', 'escort',
-    'camgirl', 'stripper', 'strip tease', 'boobs', 'tits', 'pussy', 'cock',
-    'dick', 'cum', 'horny', 'erotic', 'erotica', 'fuck me', 'gangbang',
-    'threesome', 'deepthroat', 'bukkake', 'hardcore porn', 'softcore',
-    'lesbian porn', 'gay porn', 'sextape', 'sex tape', 'adult film',
-  ];
-
-  function isMatureContent(track) {
-    if (!track) return false;
-    const haystack = `${track.name || ''} ${track.artist || ''} ${track.album || ''}`.toLowerCase();
-    return MATURE_KEYWORDS.some((kw) => haystack.includes(kw));
-  }
-
-  function recordPlay(track, listenedSeconds) {
-    if (!track || !track.name) return;
-    const listened = typeof listenedSeconds === 'number'
-      ? Math.max(0, Math.round(listenedSeconds))
-      : Math.round(track.position || 0);
-    playHistory.push({
-      name: track.name,
-      artist: track.artist || '',
-      album: track.album || '',
-      timestamp: Date.now(),
-      duration: listened,        // actual listened time, in seconds
-      trackLength: track.duration || 0, // full song length, for reference
-    });
-    saveHistory();
-    // Re-evaluate achievements now that a new play has landed. Wrapped in a
-    // try so a badge bug can never break play recording.
-    try { checkAchievements(); } catch (e) { log.warn('Achievement check failed:', e.message); }
-  }
 
   // ---- Achievements / milestones ----
   // Badges unlocked from local play-history stats. Each has an id, emoji,
@@ -603,6 +294,325 @@ function runApp() {
     return stats;
   }
 
+
+
+  // ---- Mature content filter ----
+  const MATURE_KEYWORDS = ['porn','xxx','nsfw','hentai','sex ','nude','naked','onlyfans',
+    'pornhub','xvideos','xhamster','blowjob','handjob','anal ','creampie','cumshot',
+    'masturbat','fetish','bdsm','milf','dildo','camgirl','stripper','boobs','tits',
+    'pussy','cock ','cum ','horny','erotic','sextape','gangbang','deepthroat'];
+  function isMatureContent(t) {
+    if (!t) return false;
+    const h = ((t.name||'')+(t.artist||'')+(t.album||'')).toLowerCase();
+    return MATURE_KEYWORDS.some(k => h.includes(k));
+  }
+  if (typeof appSettings.hideMatureContent === 'undefined') appSettings.hideMatureContent = true;
+
+  // ---- Music Pet ----
+  const petFile = path.join(app.getPath('userData'), 'pet.json');
+  function defPet() {
+    return { name:'Markus', bornMonth:getCurrentMonthKey(), hunger:80, cleanliness:100,
+      happiness:90, poop:0, alive:true, songRequest:null, lastUpdate:Date.now(),
+      listenedSecsSinceLastFeed:0, vibingGenre:null, vibingUntil:0 };
+  }
+  function loadPetData() {
+    try { if (fs.existsSync(petFile)) return Object.assign(defPet(), JSON.parse(fs.readFileSync(petFile,'utf8'))); }
+    catch(e){}
+    return defPet();
+  }
+  let pet = loadPetData();
+  function savePet() { try { fs.writeFileSync(petFile, JSON.stringify(pet), 'utf8'); } catch(e){} }
+  function updatePet() {
+    const now = Date.now();
+    if (pet.bornMonth !== getCurrentMonthKey()) {
+      const n = pet.name; pet = defPet(); pet.name = n; pet.bornMonth = getCurrentMonthKey(); savePet(); return;
+    }
+    if (!pet.alive) { pet.lastUpdate = now; return; }
+    const h = (now - pet.lastUpdate) / 3600000;
+    pet.hunger = Math.max(0, pet.hunger - h * 4);
+    pet.cleanliness = Math.max(0, pet.cleanliness - h * 3);
+    const np = Math.floor(h / 5);
+    if (np > 0) pet.poop = Math.min(5, pet.poop + np);
+    pet.happiness = Math.max(0, Math.min(100, (pet.hunger + pet.cleanliness) / 2 - pet.poop * 8));
+    if (pet.hunger <= 0 && pet.cleanliness <= 0) { pet.alive = false; pet.happiness = 0; }
+    pet.lastUpdate = now; savePet();
+  }
+  ipcMain.handle('get-pet', () => {
+    updatePet();
+    const v = pet.alive && pet.vibingUntil && Date.now() < pet.vibingUntil;
+    return Object.assign({}, pet, { isVibing: !!v, vibingGenre: v ? pet.vibingGenre : null });
+  });
+  ipcMain.handle('pet-clean', () => {
+    updatePet();
+    if (!pet.alive) return pet;
+    if (pet.poop > 0) { pet.poop--; pet.cleanliness = Math.min(100, pet.cleanliness + 20); pet.happiness = Math.min(100, pet.happiness + 5); savePet(); }
+    return pet;
+  });
+  ipcMain.handle('pet-play', () => {
+    updatePet();
+    if (!pet.alive) return pet;
+    pet.happiness = Math.min(100, pet.happiness + 8); savePet(); return pet;
+  });
+  ipcMain.handle('pet-rename', (_e, name) => {
+    updatePet();
+    const n = String(name || '').trim().slice(0, 20);
+    if (n) { pet.name = n; savePet(); }
+    return pet;
+  });
+
+  // ---- History / heatmap / export ----
+
+  ipcMain.handle('get-achievements', () => {
+    const stats = computeAchievementStats();
+    return {
+      stats,
+      badges: ACHIEVEMENTS.map(a => ({
+        id: a.id, emoji: a.emoji, title: a.title, desc: a.desc,
+        unlocked: unlockedAchievements.has(a.id),
+      })),
+      unlockedCount: ACHIEVEMENTS.filter(a => unlockedAchievements.has(a.id)).length,
+      total: ACHIEVEMENTS.length,
+    };
+  });
+
+  ipcMain.handle('get-history', (_e, q) => {
+    const query = (q || '').toLowerCase();
+    let e = [...playHistory].reverse();
+    if (query) e = e.filter(x => (x.name||'').toLowerCase().includes(query) || (x.artist||'').toLowerCase().includes(query));
+    return e.slice(0, 200).map(x => ({ name: x.name, artist: x.artist, album: x.album, timestamp: x.timestamp }));
+  });
+  ipcMain.handle('get-heatmap', () => {
+    const g = Array.from({length:7}, () => new Array(24).fill(0)); let max = 0;
+    for (const e of playHistory) { const d = new Date(e.timestamp); g[d.getDay()][d.getHours()]++; if (g[d.getDay()][d.getHours()] > max) max = g[d.getDay()][d.getHours()]; }
+    return { grid: g, max };
+  });
+  ipcMain.handle('get-recent-albums', () => {
+    const seen = new Set(); const out = [];
+    for (let i = playHistory.length - 1; i >= 0 && out.length < 24; i--) {
+      const e = playHistory[i]; const k = (e.album||e.name)+'||'+e.artist;
+      if (!seen.has(k)) { seen.add(k); out.push({ name: e.name, artist: e.artist, album: e.album }); }
+    }
+    return out;
+  });
+  ipcMain.handle('get-artist-spotlight', () => {
+    const wa = Date.now() - 7*86400000; const ac = {}, sc = {};
+    for (const e of playHistory) {
+      if (e.timestamp < wa) continue;
+      const a = e.artist || 'Unknown'; ac[a] = (ac[a]||0) + 1;
+      if (!sc[a]) sc[a] = {}; sc[a][e.name||'?'] = (sc[a][e.name||'?']||0) + 1;
+    }
+    const top = Object.entries(ac).sort((a,b) => b[1]-a[1])[0];
+    if (!top) return null;
+    const ts = Object.entries(sc[top[0]]||{}).sort((a,b) => b[1]-a[1])[0];
+    return { artist: top[0], count: top[1], topSong: ts ? ts[0] : null };
+  });
+  ipcMain.handle('get-play-count-goal', () => {
+    if (!currentSongTrack) return null;
+    const counts = {}; let max = 0;
+    for (const e of playHistory) { const k = e.name+'||'+e.artist; counts[k] = (counts[k]||0)+1; if (counts[k]>max) max=counts[k]; }
+    const cur = counts[currentSongTrack.name+'||'+currentSongTrack.artist] || 0;
+    return { song: currentSongTrack.name, artist: currentSongTrack.artist, count: cur, recordCount: max, toRecord: Math.max(0, max-cur+1) };
+  });
+  ipcMain.handle('get-daily-goal', () => {
+    const now = new Date(); const tk = now.getFullYear()+'-'+now.getMonth()+'-'+now.getDate();
+    let secs = 0;
+    for (const e of playHistory) { const d = new Date(e.timestamp); if (d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate() === tk) secs += e.duration||0; }
+    const gm = (appSettings && typeof appSettings.dailyGoalMinutes === 'number') ? appSettings.dailyGoalMinutes : 60;
+    return { todaySeconds: secs, goalMinutes: gm };
+  });
+  ipcMain.handle('export-history', async (_e, format) => {
+    if (playHistory.length === 0) return { ok: false, reason: 'empty' };
+    const ext = format === 'csv' ? 'csv' : 'json';
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export listening history', defaultPath: 'history.' + ext,
+      filters: [{ name: ext.toUpperCase(), extensions: [ext] }]
+    });
+    if (canceled || !filePath) return { ok: false, reason: 'canceled' };
+    try {
+      const content = ext === 'csv'
+        ? [['Song','Artist','Album','Played At','Seconds']].concat(playHistory.map(e => [e.name,e.artist,e.album,new Date(e.timestamp).toISOString(),e.duration||0].map(v => '"'+String(v==null?'':v).replace(/"/g,'""')+'"'))).map(r=>r.join(',')).join('\n')
+        : JSON.stringify(playHistory, null, 2);
+      fs.writeFileSync(filePath, content, 'utf8');
+      return { ok: true, path: filePath, count: playHistory.length };
+    } catch(e) { return { ok: false, reason: 'write_error' }; }
+  });
+  ipcMain.handle('get-listening-party', async () => {
+    try {
+      const all = await listPresence();
+      const now = Date.now();
+      const STALE_MS = 2 * 60 * 1000; // 2 minutes
+      const mySong = currentSongTrack ? currentSongTrack.name : null;
+      const myArtist = currentSongTrack ? currentSongTrack.artist : null;
+
+      const active = all
+        .filter((p) => p.username && p.username !== username)
+        .filter((p) => {
+          if (!p.updatedAt) return false;
+          const ts = new Date(p.updatedAt).getTime();
+          return now - ts < STALE_MS;
+        })
+        .map((p) => ({
+          username: p.username,
+          song: p.song || '',
+          artist: p.artist || '',
+          sameSong: !!(mySong && p.song === mySong && p.artist === myArtist),
+        }));
+
+      return { listeners: active, total: active.length };
+    } catch (e) {
+      // Firestore blocked/unreachable -> just report nobody, no error to user.
+      return { listeners: [], total: 0, unavailable: true };
+    }
+  });
+
+  // ---- Listening heatmap ----
+  // Returns a 7x24 grid (day-of-week x hour) of play counts, so the renderer
+  // can draw a heatmap of when the user listens most.
+  ipcMain.handle('get-heatmap', () => {
+    const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
+    let max = 0;
+    for (const e of playHistory) {
+      const d = new Date(e.timestamp);
+      const day = d.getDay();
+      const hour = d.getHours();
+      grid[day][hour]++;
+      if (grid[day][hour] > max) max = grid[day][hour];
+    }
+    return { grid, max };
+  });
+
+  // ---- Album art gallery ----
+  // Returns recently-played unique albums (name + artist), newest first, for
+  // a cover grid. Artwork URLs are fetched client-side via the iTunes lookup.
+  ipcMain.handle('get-recent-albums', () => {
+    const seen = new Set();
+    const albums = [];
+    for (let i = playHistory.length - 1; i >= 0 && albums.length < 24; i--) {
+      const e = playHistory[i];
+      const key = `${e.album || e.name}||${e.artist}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      albums.push({ name: e.name, artist: e.artist, album: e.album });
+    }
+    return albums;
+  });
+
+  // ---- Artist spotlight ----
+  // Returns the user's top artist over the last 7 days with a play count and
+  // their most-played song by that artist, for a rotating spotlight card.
+  ipcMain.handle('get-artist-spotlight', () => {
+    const weekAgo = Date.now() - 7 * 86400000;
+    const artistCounts = {};
+    const songByArtist = {};
+    for (const e of playHistory) {
+      if (e.timestamp < weekAgo) continue;
+      const a = e.artist || 'Unknown';
+      artistCounts[a] = (artistCounts[a] || 0) + 1;
+      if (!songByArtist[a]) songByArtist[a] = {};
+      const s = e.name || 'Unknown';
+      songByArtist[a][s] = (songByArtist[a][s] || 0) + 1;
+    }
+    const top = Object.entries(artistCounts).sort((a, b) => b[1] - a[1])[0];
+    if (!top) return null;
+    const [artist, count] = top;
+    const songs = songByArtist[artist] || {};
+    const topSong = Object.entries(songs).sort((a, b) => b[1] - a[1])[0];
+    return { artist, count, topSong: topSong ? topSong[0] : null };
+  });
+
+  // ---- Play-count goals ----
+  // For the current song (if any), returns how many times it's been played and
+  // how close it is to becoming the user's most-played song ever.
+  ipcMain.handle('get-play-count-goal', () => {
+    if (!currentSongTrack) return null;
+    const counts = {};
+    let maxCount = 0;
+    for (const e of playHistory) {
+      const k = `${e.name}||${e.artist}`;
+      counts[k] = (counts[k] || 0) + 1;
+      if (counts[k] > maxCount) maxCount = counts[k];
+    }
+    const curKey = `${currentSongTrack.name}||${currentSongTrack.artist}`;
+    const curCount = counts[curKey] || 0;
+    return {
+      song: currentSongTrack.name,
+      artist: currentSongTrack.artist,
+      count: curCount,
+      recordCount: maxCount,
+      toRecord: Math.max(0, maxCount - curCount + 1),
+    };
+  });
+
+
+  ipcMain.handle('get-throwback', () => {
+    if (playHistory.length === 0) return null;
+    const now = new Date();
+    const candidates = [
+      { label: 'A week ago', date: new Date(now.getTime() - 7*86400000) },
+      { label: 'A month ago', date: new Date(now.getFullYear(), now.getMonth()-1, now.getDate()) },
+      { label: 'A year ago', date: new Date(now.getFullYear()-1, now.getMonth(), now.getDate()) },
+    ];
+    const dk = d => d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate();
+    for (let i = candidates.length-1; i >= 0; i--) {
+      const plays = playHistory.filter(e => dk(new Date(e.timestamp)) === dk(candidates[i].date));
+      if (plays.length === 0) continue;
+      const sc = {}; for (const e of plays) { const k=e.name+'||'+e.artist; if(!sc[k])sc[k]={name:e.name,artist:e.artist,count:0}; sc[k].count++; }
+      return { label: candidates[i].label, dateStr: candidates[i].date.toLocaleDateString(), totalPlays: plays.length, topSongs: Object.values(sc).sort((a,b)=>b.count-a.count).slice(0,3) };
+    }
+    return null;
+  });
+
+
+  ipcMain.handle('set-setting', (_event, key, value) => {
+    appSettings[key] = value;
+    saveSettings(appSettings);
+    // Push to renderer so it can apply immediately
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('setting-changed', { key, value });
+    }
+    return true;
+  });
+  // Saved to disk at %APPDATA%/musictodiscord/play-history.json
+  // Each entry: { name, artist, album, timestamp (ms), duration (s) }
+  // Kept separate from Firestore -- this is purely local, richer data
+  // used for the Wrapped feature. Capped at 10,000 entries.
+  const historyFile = path.join(app.getPath('userData'), 'play-history.json');
+
+  function loadHistory() {
+    try {
+      if (fs.existsSync(historyFile)) {
+        const parsed = JSON.parse(fs.readFileSync(historyFile, 'utf8'));
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (e) {
+      log.warn('Failed to load play history:', e.message);
+    }
+    return [];
+  }
+
+  let playHistory = loadHistory();
+
+  function saveHistory() {
+    try {
+      if (playHistory.length > 10000) playHistory = playHistory.slice(-10000);
+      fs.writeFileSync(historyFile, JSON.stringify(playHistory), 'utf8');
+    } catch (e) {
+      log.warn('Failed to save play history:', e.message);
+    }
+  }
+
+  function recordPlay(track) {
+    if (!track || !track.name) return;
+    playHistory.push({
+      name: track.name,
+      artist: track.artist || '',
+      album: track.album || '',
+      timestamp: Date.now(),
+      duration: track.duration || 0,
+    });
+    saveHistory();
+  }
+
   let tray = null;
   let mainWindow = null;
   let rpc = null;
@@ -611,15 +621,6 @@ function runApp() {
   let lastPosition = null;
   let lastDiscordPushAt = 0; // Date.now() of the last actual setActivity call
   let lastTrackState = null; // cached for the window's initial state request
-
-  // Tracks the song currently playing and how many real seconds the user has
-  // actually listened to it so far. When the song changes (or playback stops),
-  // we record THIS accumulated value as the play's duration -- not the song's
-  // full length -- so skipped songs only count the time actually heard.
-  let currentSongTrack = null;        // the track object being listened to
-  let currentSongListenedSec = 0;     // real seconds heard of currentSongTrack
-  let currentArtHttpUrl = null;       // iTunes artwork URL for the current song
-  let lastRawTrack = null;            // most recent raw track object, for re-push
   let pollTimer = null;
   let enabled = true;
   let warnedUnsupportedPlatform = false;
@@ -631,8 +632,8 @@ function runApp() {
   let ownerModeEnabled = false; // unlocked by a separate, stronger passcode -- gold theme + dev mode + can temporarily disable the dev passcode
   let devPasscodeDisabledUntil = 0; // Date.now() timestamp; 0 means not disabled
   let devPasscodeDisableTimer = null;
-  let sessionSecondsThisMonth = 0; // accumulated locally since last Firestore push
-  let activeMonthKey = null; // the month sessionSecondsThisMonth belongs to; reset on rollover
+  let sessionSecondsThisMonth = 0;
+  let activeMonthKey = null; // accumulated locally since last Firestore push
   let lastLeaderboardPushAt = 0;
   let leaderboardSyncTimer = null;
 
@@ -1021,239 +1022,8 @@ function runApp() {
     return Promise.resolve({ state: 'not_running' });
   }
 
-  // ---- Discord RPC ----
-  async function connectDiscord() {
-    if (connected) return;
-
-    // Clean up any existing rpc client before creating a new one
-    if (rpc) {
-      try { rpc.destroy(); } catch (_) {}
-      rpc = null;
-    }
-
-    rpc = new DiscordRPC.Client({
-      clientId: CLIENT_ID,
-      transport: { type: 'ipc' },
-    });
-
-    rpc.on('ready', () => {
-      connected = true;
-      // Reset track key so the current song gets re-pushed to Discord
-      // immediately rather than waiting for the next track change.
-      lastTrackKey = null;
-      lastDiscordPushAt = 0;
-      log.info('Connected to Discord RPC');
-      updateTrayMenu();
-      pushStateUpdate();
-    });
-
-    rpc.on('disconnected', () => {
-      connected = false;
-      log.info('Disconnected from Discord RPC');
-      updateTrayMenu();
-      pushStateUpdate();
-      setTimeout(connectDiscord, 10000);
-    });
-
-    try {
-      await rpc.login();
-    } catch (err) {
-      log.warn('Discord login failed (is Discord running?):', err.message);
-      connected = false;
-      setTimeout(connectDiscord, 10000);
-    }
-  }
-
-  // ---- Album artwork ----
-  // Discord bot token + channel for the now-playing embed. These must be set
-  // locally and never committed to GitHub.
-  const ARTWORK_BOT_TOKEN = 'YOUR_BOT_TOKEN_HERE'; // Discord bot token for now-playing embed
-  const ARTWORK_CHANNEL_ID = '1520996807889653851'; // channel ID for now-playing embed
-
-  // Two complementary artwork sources:
-  //   * Imgur upload (uploadArtworkToImgur) — turns a LOCAL artwork file
-  //     into a public URL for use as the Rich Presence largeImageKey.
-  //     Requires track.artworkPath, which SMTC/Apple Music often doesn't
-  //     provide, so this frequently no-ops.
-  //   * iTunes Search API (fetchiTunesArtworkUrl) — looks up a public
-  //     artwork URL from just song name + artist. No local file needed.
-  //     Used for the now-playing embed thumbnail (Discord fetches embed
-  //     images server-side, so a plain external URL works there even though
-  //     Rich Presence is pickier).
-  const artworkUrlCache = new Map();
-  const itunesUrlCache = new Map();
-
-  // Look up a public artwork URL via the iTunes Search API by name + artist.
-  function fetchiTunesArtworkUrl(trackName, artistName) {
-    return new Promise((resolve) => {
-      if (!trackName) return resolve(null);
-      const cleanName = trackName.replace(/\s*\([^)]*(?:youtube|soundcloud|spotify|music|app)[^)]*\)\s*/gi, '').trim();
-      const cleanArtist = (artistName || '').replace(/\s*\([^)]*(?:youtube|soundcloud|spotify|music|app)[^)]*\)\s*/gi, '').trim();
-      const cacheKey = `${cleanName}||${cleanArtist}`;
-      if (itunesUrlCache.has(cacheKey)) return resolve(itunesUrlCache.get(cacheKey));
-
-      const searchTerms = [cleanName, cleanArtist].filter(Boolean).join(' ');
-      const query = encodeURIComponent(searchTerms.trim());
-      const reqPath = `/search?term=${query}&media=music&limit=5&entity=song`;
-
-      const req = https.request(
-        { hostname: 'itunes.apple.com', path: reqPath, method: 'GET', timeout: 8000 },
-        (res) => {
-          let body = '';
-          res.on('data', (chunk) => (body += chunk));
-          res.on('end', () => {
-            try {
-              const json = JSON.parse(body);
-              const results = json?.results || [];
-              if (results.length === 0) {
-                itunesUrlCache.set(cacheKey, null);
-                return resolve(null);
-              }
-
-              // Normalize for comparison: lowercase, strip punctuation, collapse
-              // spaces, and remove common noise like "(feat. ...)", "remix",
-              // "(hq)", years, etc. so near-matches still line up.
-              const norm = (s) => (s || '')
-                .toLowerCase()
-                .replace(/\(.*?\)|\[.*?\]/g, ' ')      // bracketed bits
-                .replace(/feat\.?.*$|ft\.?.*$/g, ' ')  // featured artists
-                .replace(/[^a-z0-9]+/g, ' ')           // punctuation
-                .replace(/\s+/g, ' ')
-                .trim();
-
-              const wantName = norm(cleanName);
-              const wantArtist = norm(cleanArtist);
-
-              // Token-overlap similarity: fraction of the wanted song's words
-              // that appear in the candidate's title.
-              const wordOverlap = (want, have) => {
-                const wantWords = want.split(' ').filter(Boolean);
-                const haveWords = new Set(have.split(' ').filter(Boolean));
-                if (wantWords.length === 0) return 0;
-                let hit = 0;
-                for (const w of wantWords) if (haveWords.has(w)) hit++;
-                return hit / wantWords.length;
-              };
-
-              // Score each candidate on name + artist match; require a strong
-              // combined match before trusting its artwork. Unreleased/leaked
-              // tracks usually have NO good catalog match -- better to show the
-              // fallback art than a confidently-wrong cover.
-              let best = null, bestScore = 0;
-              for (const r of results) {
-                const nameSim = wordOverlap(wantName, norm(r.trackName));
-                const artistSim = wantArtist
-                  ? wordOverlap(wantArtist, norm(r.artistName))
-                  : 1;
-                // Both matter; weight artist a bit so same-title-different-artist
-                // covers don't slip through.
-                const score = nameSim * 0.6 + artistSim * 0.4;
-                if (score > bestScore) { bestScore = score; best = r; }
-              }
-
-              // Confidence gate: need a solid combined match. Tuned so exact or
-              // near-exact catalog songs pass, but loose name-only collisions
-              // (the wrong-cover problem) fall through to null/fallback.
-              const CONFIDENCE_THRESHOLD = 0.72;
-              if (!best || bestScore < CONFIDENCE_THRESHOLD) {
-                log.info(`iTunes match too weak (${bestScore.toFixed(2)}) for: ${cleanName} — ${cleanArtist}; using fallback art`);
-                itunesUrlCache.set(cacheKey, null);
-                if (itunesUrlCache.size > 100) itunesUrlCache.delete(itunesUrlCache.keys().next().value);
-                return resolve(null);
-              }
-
-              const url = best.artworkUrl100 ? best.artworkUrl100.replace('100x100bb', '500x500bb') : null;
-              itunesUrlCache.set(cacheKey, url);
-              if (itunesUrlCache.size > 100) itunesUrlCache.delete(itunesUrlCache.keys().next().value);
-              resolve(url);
-            } catch (e) {
-              log.warn('Failed to parse iTunes API response:', e.message);
-              resolve(null);
-            }
-          });
-        }
-      );
-      req.on('error', (e) => { log.warn('iTunes API request failed:', e.message); resolve(null); });
-      req.on('timeout', () => { req.destroy(); log.warn('iTunes API request timed out'); resolve(null); });
-      req.end();
-    });
-  }
-
-  function uploadArtworkToImgur(filePath) {
-    return new Promise((resolve) => {
-      let imageData;
-      try {
-        imageData = fs.readFileSync(filePath, { encoding: 'base64' });
-      } catch (e) {
-        log.warn('Could not read artwork file:', e.message);
-        return resolve(null);
-      }
-
-      // Hash the actual image bytes for the cache key -- the artwork file on
-      // disk gets overwritten in place for every new track, so caching by
-      // file PATH would incorrectly reuse a stale URL from a previous song.
-      const contentHash = crypto.createHash('md5').update(imageData).digest('hex');
-      if (artworkUrlCache.has(contentHash)) {
-        return resolve(artworkUrlCache.get(contentHash));
-      }
-
-      const postData = `image=${encodeURIComponent(imageData)}&type=base64`;
-
-      const req = https.request(
-        {
-          hostname: 'api.imgur.com',
-          path: '/3/image',
-          method: 'POST',
-          headers: {
-            // Imgur's public anonymous-upload Client ID -- meant to be
-            // embedded in client apps, not a secret.
-            Authorization: 'Client-ID 546c25a59c58ad7',
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Content-Length': Buffer.byteLength(postData),
-          },
-          timeout: 10000,
-        },
-        (res) => {
-          let body = '';
-          res.on('data', (chunk) => (body += chunk));
-          res.on('end', () => {
-            try {
-              const json = JSON.parse(body);
-              if (json.success && json.data && json.data.link) {
-                const url = json.data.link;
-                artworkUrlCache.set(contentHash, url);
-                // Keep the cache from growing forever across a long session.
-                if (artworkUrlCache.size > 50) {
-                  const firstKey = artworkUrlCache.keys().next().value;
-                  artworkUrlCache.delete(firstKey);
-                }
-                resolve(url);
-              } else {
-                log.warn('Imgur upload did not return a link:', body.slice(0, 200));
-                resolve(null);
-              }
-            } catch (e) {
-              log.warn('Failed to parse Imgur response:', e.message);
-              resolve(null);
-            }
-          });
-        }
-      );
-
-      req.on('error', (e) => {
-        log.warn('Imgur upload request failed:', e.message);
-        resolve(null);
-      });
-      req.on('timeout', () => {
-        req.destroy();
-        log.warn('Imgur upload timed out');
-        resolve(null);
-      });
-
-      req.write(postData);
-      req.end();
-    });
-  }
+  const ARTWORK_BOT_TOKEN = 'YOUR_BOT_TOKEN_HERE';
+  const ARTWORK_CHANNEL_ID = '1520996807889653851';
 
   // ---- Now-playing embed ----
   // Posts (or edits) a rich embed in the Discord channel whenever the track
@@ -1451,6 +1221,194 @@ function runApp() {
     }
   }
 
+
+  // ---- Discord RPC ----
+  async function connectDiscord() {
+    if (connected) return;
+
+    // Clean up any existing rpc client before creating a new one
+    if (rpc) {
+      try { rpc.destroy(); } catch (_) {}
+      rpc = null;
+    }
+
+    rpc = new DiscordRPC.Client({
+      clientId: CLIENT_ID,
+      transport: { type: 'ipc' },
+    });
+
+    rpc.on('ready', () => {
+      connected = true;
+      // Reset track key so the current song gets re-pushed to Discord
+      // immediately rather than waiting for the next track change.
+      lastTrackKey = null;
+      lastDiscordPushAt = 0;
+      log.info('Connected to Discord RPC');
+      updateTrayMenu();
+      pushStateUpdate();
+    });
+
+    rpc.on('disconnected', () => {
+      connected = false;
+      log.info('Disconnected from Discord RPC');
+      updateTrayMenu();
+      pushStateUpdate();
+      setTimeout(connectDiscord, 10000);
+    });
+
+    try {
+      await rpc.login();
+    } catch (err) {
+      log.warn('Discord login failed (is Discord running?):', err.message);
+      connected = false;
+      setTimeout(connectDiscord, 10000);
+    }
+  }
+
+  // ---- Album artwork upload (Imgur) ----
+  // Discord Rich Presence images must be either pre-uploaded asset keys or a
+  // public https:// URL it can fetch -- it can't read files off the user's
+  // disk. So for real per-song album art, we upload each track's artwork to
+  // Imgur anonymously (no account needed) and use the resulting URL.
+  const artworkUrlCache = new Map();
+
+  function uploadArtworkToImgur(filePath) {
+    return new Promise((resolve) => {
+      let imageData;
+      try {
+        imageData = fs.readFileSync(filePath, { encoding: 'base64' });
+      } catch (e) {
+        log.warn('Could not read artwork file:', e.message);
+        return resolve(null);
+      }
+
+      // Hash the actual image bytes for the cache key -- the artwork file on
+      // disk gets overwritten in place for every new track, so caching by
+      // file PATH would incorrectly reuse a stale URL from a previous song.
+      const contentHash = crypto.createHash('md5').update(imageData).digest('hex');
+      if (artworkUrlCache.has(contentHash)) {
+        return resolve(artworkUrlCache.get(contentHash));
+      }
+
+      const postData = `image=${encodeURIComponent(imageData)}&type=base64`;
+
+      const req = https.request(
+        {
+          hostname: 'api.imgur.com',
+          path: '/3/image',
+          method: 'POST',
+          headers: {
+            // Imgur's public anonymous-upload Client ID -- meant to be
+            // embedded in client apps, not a secret.
+            Authorization: 'Client-ID 546c25a59c58ad7',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Length': Buffer.byteLength(postData),
+          },
+          timeout: 10000,
+        },
+        (res) => {
+          let body = '';
+          res.on('data', (chunk) => (body += chunk));
+          res.on('end', () => {
+            try {
+              const json = JSON.parse(body);
+              if (json.success && json.data && json.data.link) {
+                const url = json.data.link;
+                artworkUrlCache.set(contentHash, url);
+                // Keep the cache from growing forever across a long session.
+                if (artworkUrlCache.size > 50) {
+                  const firstKey = artworkUrlCache.keys().next().value;
+                  artworkUrlCache.delete(firstKey);
+                }
+                resolve(url);
+              } else {
+                log.warn('Imgur upload did not return a link:', body.slice(0, 200));
+                resolve(null);
+              }
+            } catch (e) {
+              log.warn('Failed to parse Imgur response:', e.message);
+              resolve(null);
+            }
+          });
+        }
+      );
+
+      req.on('error', (e) => {
+        log.warn('Imgur upload request failed:', e.message);
+        resolve(null);
+      });
+      req.on('timeout', () => {
+        req.destroy();
+        log.warn('Imgur upload timed out');
+        resolve(null);
+      });
+
+      req.write(postData);
+      req.end();
+    });
+  }
+
+  async function setPresence(track) {
+    if (!connected || !rpc?.user) {
+      log.warn('Skipped presence update — not connected to Discord yet');
+      return false;
+    }
+
+    if (track.state !== 'playing' && track.state !== 'paused') {
+      await rpc.user.clearActivity().catch(() => {});
+      return true;
+    }
+    if (appSettings.hideMatureContent && isMatureContent(track)) {
+      try { await rpc.user.setActivity({ details: 'Listening privately', state: '\u200b', largeImageKey: 'app_logo', instance: false }); } catch(e) {}
+      return true;
+    }
+
+    const now = Date.now();
+    const startTimestamp = Math.floor(now - track.position * 1000);
+    const endTimestamp = Math.floor(now + (track.duration - track.position) * 1000);
+
+    // Try to use real album art from Imgur. Discord RPC accepts external
+    // image URLs via `largeImageURL` (not `largeImageKey`). Fall back to
+    // the static `app_logo` asset key if no artwork or upload fails.
+    let largeImageKey = 'app_logo';
+    let largeImageURL = undefined;
+
+    if (track.artworkPath) {
+      const uploadedUrl = await uploadArtworkToImgur(track.artworkPath);
+      if (uploadedUrl) {
+        largeImageKey = undefined;
+        largeImageURL = uploadedUrl;
+      }
+    }
+
+    const activity = {
+      details: (track.name || 'Unknown track').slice(0, 128),
+      state: (track.artist ? `by ${track.artist}` : 'Unknown artist').slice(0, 128),
+      largeImageText: (track.album || '').slice(0, 128),
+      instance: false,
+    };
+
+    // Only set one of largeImageKey OR largeImageURL — not both
+    if (largeImageURL) {
+      activity.largeImageURL = largeImageURL;
+    } else {
+      activity.largeImageKey = largeImageKey;
+    }
+
+    if (track.state === 'playing') {
+      activity.startTimestamp = startTimestamp;
+      activity.endTimestamp = endTimestamp;
+    }
+
+    try {
+      await rpc.user.setActivity(activity);
+      return true;
+    } catch (e) {
+      log.warn('setActivity failed:', e.message);
+      return false;
+    }
+  }
+
   // ---- Polling loop ----
   let firstPollDone = false;
   let lastPollAt = null; // Date.now() of the previous poll, used to accumulate real elapsed listening time below
@@ -1469,27 +1427,10 @@ function runApp() {
         // Always update on the very first poll, even with no change, so the
         // tooltip never stays stuck on "starting..." forever.
         if (lastTrackKey !== null || !firstPollDone) {
-          // Music stopped -- record the song that was playing only if it was
-          // heard (nearly) in full, matching the skip rule used on song change.
-          if (currentSongTrack) {
-            const len = currentSongTrack.duration || 0;
-            const heard = currentSongListenedSec;
-            if (len > 0 && (heard >= len * 0.95 || heard >= len - 5)) {
-              recordPlay(currentSongTrack, heard);
-            }
-          }
-          currentSongTrack = null;
-          currentSongListenedSec = 0;
-
           lastTrackKey = null;
           lastPosition = null;
           if (connected && rpc?.user) await rpc.user.clearActivity().catch(() => {});
           updateTrayTooltip(`${APP_NAME} — nothing playing`);
-          // Reflect "stopped" in the channel embed too, so it doesn't sit
-          // there forever claiming the last song is still playing.
-          clearNowPlayingEmbed().catch((e) => log.warn('Clear embed failed:', e.message));
-          // Remove our listening presence so we don't show as "still playing".
-          if (username) clearFirestorePresence(username).catch(() => {});
         }
         pushStateUpdate(track);
       } else {
@@ -1517,28 +1458,10 @@ function runApp() {
             sessionSecondsThisMonth = 0;
           }
 
+
           const elapsedSec = (now - lastPollAt) / 1000;
           const cappedSec = Math.min(elapsedSec, (POLL_INTERVAL_MS / 1000) * 2);
-          if (cappedSec > 0) {
-            sessionSecondsThisMonth += cappedSec;
-            // Also credit this elapsed time to the song currently playing, so
-            // we know how long it was ACTUALLY heard when it ends/changes.
-            const sameSongAsTracked = currentSongTrack &&
-              currentSongTrack.name === track.name &&
-              currentSongTrack.artist === track.artist;
-            if (sameSongAsTracked) {
-              currentSongListenedSec += cappedSec;
-              // Let the pet observe what's playing (feeds it if the genre
-              // matches its craving). Cheap + rate-limited internally.
-              try { petObserveListening(track); } catch (e) {}
-              // Never count more than the song's own length for a single play
-              // (a loop registers as a separate play via rewind detection).
-              const len = currentSongTrack.duration || 0;
-              if (len > 0 && currentSongListenedSec > len) {
-                currentSongListenedSec = len;
-              }
-            }
-          }
+          if (cappedSec > 0) sessionSecondsThisMonth += cappedSec;
         }
 
         // Same song/state as last poll, but the position jumped backwards
@@ -1566,81 +1489,33 @@ function runApp() {
             lastDiscordPushAt = Date.now();
           }
 
-          // On a genuine song change, record the song that JUST ENDED -- but
-          // only if it was listened to (nearly) in full. A song counts as a
-          // real play when the user heard at least ~95% of its length (or
-          // within 5s of the end, whichever is more forgiving). Skipped songs
-          // -- heard only partway -- are dropped entirely, so they don't show
-          // up in Wrapped/top songs or add to listening time.
+          // Record a play only on genuine track changes (not pause→play of
+          // the same song, and not position rewinds -- those reuse the same
+          // name+artist key as the song already playing).
           const newSongKey = `${track.name}|${track.artist}`;
           const prevSongKey = previousTrackKey ? previousTrackKey.replace(/\|(playing|paused)$/, '') : null;
-          if (newSongKey !== prevSongKey) {
-            if (currentSongTrack) {
-              const len = currentSongTrack.duration || 0;
-              const heard = currentSongListenedSec;
-              const finishedSong = len > 0 &&
-                (heard >= len * 0.95 || heard >= len - 5);
-              if (finishedSong) {
-                recordPlay(currentSongTrack, heard);
-              }
-            }
-            // Start tracking the new song fresh.
-            currentSongTrack = track.state === 'playing'
-              ? { name: track.name, artist: track.artist, album: track.album, duration: track.duration }
-              : null;
-            currentSongListenedSec = 0;
-            currentArtHttpUrl = null; // cleared until the new cover is fetched
-          }
-
-          // Post/update the now-playing embed only on real changes (new song,
-          // or play↔pause), NOT on the every-15s position refresh -- editing
-          // the same embed repeatedly with identical content just burns
-          // Discord's edit rate limit for no benefit. The embed thumbnail
-          // uses the iTunes Search API (works from name+artist) rather than
-          // the local artwork file, which is usually empty for Apple Music.
-          const matureHidden = appSettings.hideMatureContent && isMatureContent(track);
-
-          if (isNewEvent && !matureHidden) {
-            fetchiTunesArtworkUrl(track.name, track.artist)
-              .then((embedArt) => {
-                postNowPlayingEmbed(track, embedArt);
-                // Make the fetched cover available to the app window too --
-                // both for showing real album art and for the dynamic theme.
-                // Only update if this is still the current song.
-                if (currentSongTrack &&
-                    currentSongTrack.name === track.name &&
-                    currentSongTrack.artist === track.artist) {
-                  currentArtHttpUrl = embedArt || null;
-                  pushStateUpdate(lastRawTrack || track);
-                }
-              })
-              .catch((e) => log.warn('Now-playing embed failed:', e.message));
-          } else if (isNewEvent && matureHidden) {
-            // Mature content: clear any existing embed so the last (clean)
-            // song doesn't linger publicly, and don't post the explicit one.
-            clearNowPlayingEmbed().catch(() => {});
+          if (newSongKey !== prevSongKey && track.state === 'playing') {
+            recordPlay(track);
           }
 
           updateTrayTooltip(`${track.state === 'playing' ? '▶' : '⏸'} ${track.name} — ${track.artist}`);
-          log.info('Now:', track.state, track.name, '-', track.artist, 'genre:', track.genre);
-          // Feed the pet whenever the song changes -- fires reliably here.
-          try { if (track.state === 'playing') petObserveListening(track); } catch (e) {}
-
-          // Update listening presence (for the "listening party" feature).
-          // Only when actually playing and the user has a username + sync on.
-          // Mature content is kept off presence too. Fire-and-forget; failures
-          // (e.g. Firestore blocked on school wifi) are silently ignored.
-          if (isNewEvent && username && enabled) {
-            if (track.state === 'playing' && !matureHidden) {
-              setFirestorePresence(username, { song: track.name, artist: track.artist })
-                .catch(() => {});
-            } else {
-              clearFirestorePresence(username).catch(() => {});
+          log.info('Now:', track.state, track.name, '-', track.artist);
+        if (track.state === 'playing') {
+          try {
+            updatePet();
+            if (pet.alive) {
+              pet.listenedSecsSinceLastFeed = (pet.listenedSecsSinceLastFeed||0) + (POLL_INTERVAL_MS/1000);
+              if (pet.listenedSecsSinceLastFeed >= 300) { pet.listenedSecsSinceLastFeed=0; pet.hunger=Math.min(100,pet.hunger+20); pet.happiness=Math.min(100,pet.happiness+5); }
+              if (pet.songRequest && track.name && track.name.toLowerCase()===pet.songRequest.name.toLowerCase()) { pet.hunger=Math.min(100,pet.hunger+30); pet.happiness=Math.min(100,pet.happiness+20); pet.songRequest=null; }
+              if (!pet.songRequest && playHistory.length>0) { const e=playHistory[playHistory.length-1-Math.floor(Math.random()*Math.min(20,playHistory.length))]; if(e)pet.songRequest={name:e.name,artist:e.artist}; }
+              pet.vibingGenre='hiphop'; pet.vibingUntil=Date.now()+20000;
+              savePet();
+              if (mainWindow&&!mainWindow.isDestroyed()) mainWindow.webContents.send('pet-changed');
             }
-          }
+          } catch(e) {}
+        }
         }
         lastPosition = track.position;
-        lastRawTrack = track;
         pushStateUpdate(track);
       }
       lastPollAt = now;
@@ -1739,27 +1614,30 @@ function runApp() {
 
     mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
-    // ---- Mini mode / always-on-top ----
-    // Mini mode shrinks the window to a compact now-playing size and pins it
-    // on top of other windows. Toggling off restores the previous size.
+    // Mini mode
     let preMiniSize = null;
     ipcMain.handle('toggle-mini-mode', (_event, on) => {
       if (!mainWindow || mainWindow.isDestroyed()) return false;
-      if (on) {
-        preMiniSize = mainWindow.getBounds();
-        mainWindow.setAlwaysOnTop(true, 'floating');
-        mainWindow.setMinimumSize(200, 240);
-        mainWindow.setSize(220, 280);
-      } else {
-        mainWindow.setAlwaysOnTop(false);
-        mainWindow.setMinimumSize(320, 400);
-        if (preMiniSize) {
-          mainWindow.setBounds(preMiniSize);
-        } else {
-          mainWindow.setSize(420, 680);
-        }
-      }
+      if (on) { preMiniSize=mainWindow.getBounds(); mainWindow.setAlwaysOnTop(true,'floating'); mainWindow.setMinimumSize(200,240); mainWindow.setSize(220,280); }
+      else { mainWindow.setAlwaysOnTop(false); mainWindow.setMinimumSize(320,400); if(preMiniSize)mainWindow.setBounds(preMiniSize); else mainWindow.setSize(420,680); }
       return on;
+    });
+
+    // Sleep timer
+    let sleepTimer = null;
+    ipcMain.handle('set-sleep-timer', (_event, minutes) => {
+      if (sleepTimer) { clearTimeout(sleepTimer); sleepTimer=null; }
+      if (!minutes||minutes<=0) return {active:false};
+      sleepTimer = setTimeout(() => {
+        sleepTimer=null;
+        if (enabled) {
+          enabled=false;
+          if(connected&&rpc&&rpc.user)rpc.user.clearActivity().catch(()=>{});
+          updateTrayMenu(); pushStateUpdate();
+          if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('sleep-timer-fired');
+        }
+      }, minutes*60*1000);
+      return {active:true,minutes};
     });
 
     mainWindow.once('ready-to-show', () => {
@@ -1839,7 +1717,6 @@ function runApp() {
       lastTrackState = {
         ...track,
         artworkDataUrl: artworkToDataUrl(track.artworkPath),
-        artworkHttpUrl: currentArtHttpUrl, // iTunes cover URL, if fetched
       };
     }
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1860,30 +1737,6 @@ function runApp() {
     devMode: devModeEnabled,
     ownerMode: ownerModeEnabled,
   }));
-
-  // ---- Sleep timer ----
-  // Auto-pauses Discord sync after N minutes (e.g. so your status doesn't
-  // linger overnight). Setting 0 cancels it. Clears the timer if sync is
-  // toggled manually in the meantime.
-  let sleepTimer = null;
-  ipcMain.handle('set-sleep-timer', (_event, minutes) => {
-    if (sleepTimer) { clearTimeout(sleepTimer); sleepTimer = null; }
-    if (!minutes || minutes <= 0) return { active: false };
-    sleepTimer = setTimeout(() => {
-      sleepTimer = null;
-      if (enabled) {
-        enabled = false;
-        if (connected && rpc?.user) rpc.user.clearActivity().catch(() => {});
-        if (username) clearFirestorePresence(username).catch(() => {});
-        updateTrayMenu();
-        pushStateUpdate();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('sleep-timer-fired');
-        }
-      }
-    }, minutes * 60 * 1000);
-    return { active: true, minutes };
-  });
 
   ipcMain.on('toggle-pause', () => {
     enabled = !enabled;
@@ -1965,37 +1818,6 @@ function runApp() {
       return { ok: false, reason: 'dev_mode_unlocked' };
     }
 
-    // ---- Easter egg codes ----
-    // Fun cosmetic codes typed into the username box, like the dev passcode
-    // but purely for surprises -- they never get saved as a name or sent to
-    // Firestore. Each returns an "easter_egg" reason plus an `egg` id the
-    // renderer maps to an effect (confetti, theme flash, message, etc.).
-    const EASTER_EGGS = {
-      'CONFETTI': 'confetti',
-      'PARTY': 'confetti',
-      'RAINBOW': 'rainbow',
-      'MATRIX': 'matrix',
-      'GOLDEN': 'golden',
-      'VAPOR': 'vapor',
-      '808S': 'heartbreak',
-      'YEEZY': 'yeezy',
-      'BARKING': 'barking',
-      'SECRET': 'secret',
-      'SNOW': 'snow',
-      'FIRE': 'fire',
-      'DISCO': 'disco',
-      'GRADUATION': 'graduation',
-      'DONDA': 'donda',
-      'STARS': 'stars',
-      'GLITCH': 'glitch',
-      'ZEN': 'zen',
-    };
-    const eggKey = trimmed.toUpperCase();
-    if (EASTER_EGGS[eggKey]) {
-      log.info('Easter egg triggered:', eggKey);
-      return { ok: false, reason: 'easter_egg', egg: EASTER_EGGS[eggKey] };
-    }
-
     // If they're just re-saving the name they already have, there's
     // nothing to claim or check -- skip straight to "already fine."
     if (trimmed === username) {
@@ -2045,9 +1867,6 @@ function runApp() {
       monthlyTotalLoaded = false;
       sessionSecondsThisMonth = await loadExistingMonthlyTotal();
       monthlyTotalLoaded = true;
-      // Anchor the month this total belongs to, so a rollover mid-session
-      // resets it instead of writing last month's hours into the new month.
-      activeMonthKey = getCurrentMonthKey();
     }
 
     // Push an entry right away so a new/renamed user shows up on the
@@ -2098,22 +1917,6 @@ function runApp() {
   }
 
   // ---- Wrapped IPC ----
-  // Clears all locally-stored play history, which is the sole data source for
-  // Wrapped, Streaks, and Recommendations. This is purely local (the file at
-  // %APPDATA%/musictodiscord/play-history.json) and does NOT touch the
-  // Firestore leaderboard -- that's a separate "Delete my stats" action.
-  ipcMain.handle('reset-wrapped', () => {
-    try {
-      playHistory = [];
-      saveHistory();
-      log.info('Wrapped/play history reset by user');
-      return true;
-    } catch (e) {
-      log.warn('Failed to reset Wrapped history:', e.message);
-      return false;
-    }
-  });
-
   ipcMain.handle('get-wrapped', (_event, monthKey) => {
     // monthKey format: "YYYY-MM". Defaults to current month.
     const month = monthKey || getCurrentMonthKey();
@@ -2188,51 +1991,6 @@ function runApp() {
     };
   });
 
-  // ---- "On this day" throwback ----
-  // Looks back at the same calendar day in previous weeks/months/years and
-  // returns what was playing then, for a nostalgia card in Wrapped. Returns
-  // the most notable past day that has plays, with its top songs.
-  ipcMain.handle('get-throwback', () => {
-    if (playHistory.length === 0) return null;
-    const now = new Date();
-
-    // Candidate look-back points: 1 week, 1 month, 3 months, 6 months, 1 year.
-    const candidates = [
-      { label: 'A week ago', date: new Date(now.getTime() - 7 * 86400000) },
-      { label: 'A month ago', date: new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()) },
-      { label: '3 months ago', date: new Date(now.getFullYear(), now.getMonth() - 3, now.getDate()) },
-      { label: '6 months ago', date: new Date(now.getFullYear(), now.getMonth() - 6, now.getDate()) },
-      { label: 'A year ago', date: new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()) },
-    ];
-
-    const dayKey = (d) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-
-    // Prefer the furthest-back candidate that actually has plays (more
-    // nostalgic), so check them in reverse order.
-    for (let i = candidates.length - 1; i >= 0; i--) {
-      const c = candidates[i];
-      const targetKey = dayKey(c.date);
-      const dayPlays = playHistory.filter((e) => dayKey(new Date(e.timestamp)) === targetKey);
-      if (dayPlays.length === 0) continue;
-
-      const songCounts = {};
-      for (const e of dayPlays) {
-        const k = `${e.name}||${e.artist}`;
-        if (!songCounts[k]) songCounts[k] = { name: e.name, artist: e.artist, count: 0 };
-        songCounts[k].count++;
-      }
-      const topSongs = Object.values(songCounts).sort((a, b) => b.count - a.count).slice(0, 3);
-
-      return {
-        label: c.label,
-        dateStr: c.date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }),
-        totalPlays: dayPlays.length,
-        topSongs,
-      };
-    }
-    return null;
-  });
-
   ipcMain.handle('get-wrapped-months', () => {
     // Returns a list of months that have any history, most recent first
     const months = new Set();
@@ -2244,217 +2002,6 @@ function runApp() {
   });
 
   // ---- Streaks ----
-  // ---- Achievements IPC ----
-  // Returns the full badge list with locked/unlocked status and current
-  // progress stats, so the renderer can show earned + locked badges.
-  ipcMain.handle('get-achievements', () => {
-    const stats = computeAchievementStats();
-    return {
-      stats,
-      badges: ACHIEVEMENTS.map((a) => ({
-        id: a.id,
-        emoji: a.emoji,
-        title: a.title,
-        desc: a.desc,
-        unlocked: unlockedAchievements.has(a.id),
-      })),
-      unlockedCount: ACHIEVEMENTS.filter((a) => unlockedAchievements.has(a.id)).length,
-      total: ACHIEVEMENTS.length,
-    };
-  });
-
-  // ---- Daily listening goal ----
-  // Returns how many seconds the user has listened TODAY (from play history)
-  // plus their configured daily goal in minutes (default 60). The renderer
-  // draws a progress ring from this.
-  // ---- Listening party ----
-  // Returns other users currently listening (from Firestore presence),
-  // filtering out stale entries (>2 min old) and the current user. Also flags
-  // who's listening to the SAME song as you right now.
-  // ---- Play history (timeline + search) ----
-  // Returns recent plays, newest first, optionally filtered by a search query
-  // matching song or artist. Capped so the UI stays snappy.
-  // ---- Export listening data ----
-  // Lets the user save their full play history to a JSON or CSV file via a
-  // native save dialog. Purely local -- reads playHistory and writes to disk.
-  ipcMain.handle('export-history', async (_event, format) => {
-    if (playHistory.length === 0) return { ok: false, reason: 'empty' };
-
-    const ext = format === 'csv' ? 'csv' : 'json';
-    const defaultName = `musictodiscord-history-${getCurrentMonthKey()}.${ext}`;
-
-    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
-      title: 'Export listening history',
-      defaultPath: defaultName,
-      filters: ext === 'csv'
-        ? [{ name: 'CSV', extensions: ['csv'] }]
-        : [{ name: 'JSON', extensions: ['json'] }],
-    });
-    if (canceled || !filePath) return { ok: false, reason: 'canceled' };
-
-    try {
-      let content;
-      if (ext === 'csv') {
-        const escape = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
-        const rows = [['Song', 'Artist', 'Album', 'Played At', 'Seconds Listened']];
-        for (const e of playHistory) {
-          rows.push([
-            escape(e.name), escape(e.artist), escape(e.album),
-            escape(new Date(e.timestamp).toISOString()), escape(e.duration || 0),
-          ]);
-        }
-        content = rows.map((r) => r.join(',')).join('\n');
-      } else {
-        content = JSON.stringify(playHistory, null, 2);
-      }
-      fs.writeFileSync(filePath, content, 'utf8');
-      log.info('Exported history to', filePath);
-      return { ok: true, path: filePath, count: playHistory.length };
-    } catch (e) {
-      log.warn('Export failed:', e.message);
-      return { ok: false, reason: 'write_error' };
-    }
-  });
-
-  ipcMain.handle('get-history', (_event, query) => {
-    const q = (query || '').trim().toLowerCase();
-    let entries = [...playHistory].reverse(); // newest first
-    if (q) {
-      entries = entries.filter((e) =>
-        (e.name || '').toLowerCase().includes(q) ||
-        (e.artist || '').toLowerCase().includes(q)
-      );
-    }
-    return entries.slice(0, 200).map((e) => ({
-      name: e.name,
-      artist: e.artist,
-      album: e.album,
-      timestamp: e.timestamp,
-    }));
-  });
-
-  ipcMain.handle('get-listening-party', async () => {
-    try {
-      const all = await listPresence();
-      const now = Date.now();
-      const STALE_MS = 2 * 60 * 1000; // 2 minutes
-      const mySong = currentSongTrack ? currentSongTrack.name : null;
-      const myArtist = currentSongTrack ? currentSongTrack.artist : null;
-
-      const active = all
-        .filter((p) => p.username && p.username !== username)
-        .filter((p) => {
-          if (!p.updatedAt) return false;
-          const ts = new Date(p.updatedAt).getTime();
-          return now - ts < STALE_MS;
-        })
-        .map((p) => ({
-          username: p.username,
-          song: p.song || '',
-          artist: p.artist || '',
-          sameSong: !!(mySong && p.song === mySong && p.artist === myArtist),
-        }));
-
-      return { listeners: active, total: active.length };
-    } catch (e) {
-      // Firestore blocked/unreachable -> just report nobody, no error to user.
-      return { listeners: [], total: 0, unavailable: true };
-    }
-  });
-
-  // ---- Listening heatmap ----
-  // Returns a 7x24 grid (day-of-week x hour) of play counts, so the renderer
-  // can draw a heatmap of when the user listens most.
-  ipcMain.handle('get-heatmap', () => {
-    const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
-    let max = 0;
-    for (const e of playHistory) {
-      const d = new Date(e.timestamp);
-      const day = d.getDay();
-      const hour = d.getHours();
-      grid[day][hour]++;
-      if (grid[day][hour] > max) max = grid[day][hour];
-    }
-    return { grid, max };
-  });
-
-  // ---- Album art gallery ----
-  // Returns recently-played unique albums (name + artist), newest first, for
-  // a cover grid. Artwork URLs are fetched client-side via the iTunes lookup.
-  ipcMain.handle('get-recent-albums', () => {
-    const seen = new Set();
-    const albums = [];
-    for (let i = playHistory.length - 1; i >= 0 && albums.length < 24; i--) {
-      const e = playHistory[i];
-      const key = `${e.album || e.name}||${e.artist}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      albums.push({ name: e.name, artist: e.artist, album: e.album });
-    }
-    return albums;
-  });
-
-  // ---- Artist spotlight ----
-  // Returns the user's top artist over the last 7 days with a play count and
-  // their most-played song by that artist, for a rotating spotlight card.
-  ipcMain.handle('get-artist-spotlight', () => {
-    const weekAgo = Date.now() - 7 * 86400000;
-    const artistCounts = {};
-    const songByArtist = {};
-    for (const e of playHistory) {
-      if (e.timestamp < weekAgo) continue;
-      const a = e.artist || 'Unknown';
-      artistCounts[a] = (artistCounts[a] || 0) + 1;
-      if (!songByArtist[a]) songByArtist[a] = {};
-      const s = e.name || 'Unknown';
-      songByArtist[a][s] = (songByArtist[a][s] || 0) + 1;
-    }
-    const top = Object.entries(artistCounts).sort((a, b) => b[1] - a[1])[0];
-    if (!top) return null;
-    const [artist, count] = top;
-    const songs = songByArtist[artist] || {};
-    const topSong = Object.entries(songs).sort((a, b) => b[1] - a[1])[0];
-    return { artist, count, topSong: topSong ? topSong[0] : null };
-  });
-
-  // ---- Play-count goals ----
-  // For the current song (if any), returns how many times it's been played and
-  // how close it is to becoming the user's most-played song ever.
-  ipcMain.handle('get-play-count-goal', () => {
-    if (!currentSongTrack) return null;
-    const counts = {};
-    let maxCount = 0;
-    for (const e of playHistory) {
-      const k = `${e.name}||${e.artist}`;
-      counts[k] = (counts[k] || 0) + 1;
-      if (counts[k] > maxCount) maxCount = counts[k];
-    }
-    const curKey = `${currentSongTrack.name}||${currentSongTrack.artist}`;
-    const curCount = counts[curKey] || 0;
-    return {
-      song: currentSongTrack.name,
-      artist: currentSongTrack.artist,
-      count: curCount,
-      recordCount: maxCount,
-      toRecord: Math.max(0, maxCount - curCount + 1),
-    };
-  });
-
-  ipcMain.handle('get-daily-goal', () => {
-    const now = new Date();
-    const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
-    let todaySeconds = 0;
-    for (const e of playHistory) {
-      const d = new Date(e.timestamp);
-      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-      if (key === todayKey) todaySeconds += e.duration || 0;
-    }
-    const goalMinutes = (appSettings && typeof appSettings.dailyGoalMinutes === 'number')
-      ? appSettings.dailyGoalMinutes
-      : 60;
-    return { todaySeconds, goalMinutes };
-  });
-
   ipcMain.handle('get-streaks', () => {
     if (playHistory.length === 0) return { current: 0, longest: 0, todayCount: 0 };
 
@@ -2480,28 +2027,17 @@ function runApp() {
       else run = 1;
     }
 
-    // Current streak working backwards from today or yesterday. A "streak
-    // freeze" allows ONE missed day without breaking the streak (like a grace
-    // day), so a single busy day doesn't wipe a long run. The freeze can only
-    // be used once per streak.
+    // Current streak working backwards from today or yesterday
     let current = 0;
-    let freezeUsed = false;
     let checkMs = days.has(todayKey) ? new Date(todayKey).getTime() : new Date(todayKey).getTime() - 86400000;
     while (true) {
       const checkKey = new Date(checkMs).toISOString().slice(0, 10);
-      if (days.has(checkKey)) {
-        current++;
-        checkMs -= 86400000;
-      } else if (!freezeUsed && current > 0) {
-        // Spend the one freeze on this gap and keep going.
-        freezeUsed = true;
-        checkMs -= 86400000;
-      } else {
-        break;
-      }
+      if (!days.has(checkKey)) break;
+      current++;
+      checkMs -= 86400000;
     }
 
-    return { current, longest, todayCount, freezeUsed };
+    return { current, longest, todayCount };
   });
 
   // ---- Recommendations ----
@@ -2884,6 +2420,10 @@ function runApp() {
   });
 
   // ---- App lifecycle ----
+  // ---- Achievements / milestones ----
+  // Badges unlocked from local play-history stats. Each has an id, emoji,
+  // title, description, and a check(stats) predicate. Unlocked IDs are saved
+  // to disk so we only notify once per badge. Entirely local -- no network.
   app.whenReady().then(() => {
     showWindowFromOtherInstance = createWindow;
 
@@ -2953,12 +2493,6 @@ function runApp() {
       startLeaderboardSync();
     }
 
-    // Mark already-earned achievements as unlocked at startup WITHOUT firing
-    // notifications, so a user with lots of existing history isn't spammed
-    // with popups for badges they earned long ago. New unlocks during the
-    // session will still notify normally.
-    try { checkAchievements({ silent: true }); } catch (e) { log.warn('Startup achievement check failed:', e.message); }
-
     // Monthly recap: if a new month has started since the user last saw a
     // recap AND they have listening history from last month, pop a friendly
     // "your Wrapped is ready" notification. Tracked via a setting so it fires
@@ -2993,6 +2527,7 @@ function runApp() {
       log.warn('Monthly recap check failed:', e.message);
     }
 
+
     // Check for updates ~5s after launch, then silently every few hours.
     // Using checkForUpdates() (not checkForUpdatesAndNotify) since we have
     // our own custom dialog for update-downloaded, and the "AndNotify"
@@ -3003,22 +2538,5 @@ function runApp() {
 
   app.on('window-all-closed', (e) => {
     e?.preventDefault?.();
-  });
-
-  // When the app is quitting, flush the song that was still playing with its
-  // actual listened time so the final song of a session isn't lost from
-  // Wrapped/history. Synchronous save, so it completes before exit.
-  app.on('before-quit', () => {
-    if (currentSongTrack) {
-      const len = currentSongTrack.duration || 0;
-      const heard = currentSongListenedSec;
-      if (len > 0 && (heard >= len * 0.95 || heard >= len - 5)) {
-        recordPlay(currentSongTrack, heard);
-      }
-      currentSongTrack = null;
-      currentSongListenedSec = 0;
-    }
-    // Remove our listening presence so we don't linger as "still playing".
-    if (username) clearFirestorePresence(username).catch(() => {});
   });
 }
