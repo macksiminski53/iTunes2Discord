@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   petPlay: () => ipcRenderer.invoke('pet-play'),
   petRename: (name) => ipcRenderer.invoke('pet-rename', name),
   onPetChanged: (callback) => ipcRenderer.on('pet-changed', () => callback()),
+  onPetParty: (callback) => ipcRenderer.on('pet-party', () => callback()),
   getListeningParty: () => ipcRenderer.invoke('get-listening-party'),
   getHistory: (query) => ipcRenderer.invoke('get-history', query),
   exportHistory: (format) => ipcRenderer.invoke('export-history', format),

@@ -935,7 +935,7 @@ function runApp() {
     return Promise.resolve({ state: 'not_running' });
   }
 
-  const ARTWORK_BOT_TOKEN = 'YOUR_BOT_TOKEN_HERE';
+  const ARTWORK_BOT_TOKEN = 'YOUR_BOT_TOKEN_HERE'; // set locally
   const ARTWORK_CHANNEL_ID = '1520996807889653851';
 
   // ---- Now-playing embed ----
@@ -1118,6 +1118,9 @@ function runApp() {
       largeImageKey,
       largeImageText: (track.album || '').slice(0, 128),
       instance: false,
+      buttons: [
+        { label: 'Music2Discord', url: 'https://github.com/MackSiminski53/iTunes2Discord' },
+      ],
     };
 
     if (track.state === 'playing') {
@@ -1134,6 +1137,54 @@ function runApp() {
     }
   }
 
+
+
+  // ---- iTunes API artwork lookup ----
+  // Used for the app window art, now-playing embed, and dynamic theme.
+  // Works from song name + artist alone -- no local file needed.
+  const itunesUrlCache = new Map();
+
+  function fetchiTunesArtworkUrl(trackName, artistName) {
+    return new Promise((resolve) => {
+      if (!trackName) return resolve(null);
+      const cleanName = trackName.replace(/\s*\([^)]*(?:youtube|soundcloud|spotify|music|app)[^)]*\)\s*/gi, '').trim();
+      const cleanArtist = (artistName || '').replace(/\s*\([^)]*(?:youtube|soundcloud|spotify|music|app)[^)]*\)\s*/gi, '').trim();
+      const cacheKey = cleanName + '||' + cleanArtist;
+      if (itunesUrlCache.has(cacheKey)) return resolve(itunesUrlCache.get(cacheKey));
+
+      const query = encodeURIComponent((cleanName + ' ' + cleanArtist).trim());
+      const req = https.request(
+        { hostname: 'itunes.apple.com', path: '/search?term=' + query + '&media=music&limit=5&entity=song', method: 'GET', timeout: 8000 },
+        (res) => {
+          let body = '';
+          res.on('data', (d) => (body += d));
+          res.on('end', () => {
+            try {
+              const results = (JSON.parse(body).results || []);
+              if (!results.length) { itunesUrlCache.set(cacheKey, null); return resolve(null); }
+
+              // Score each result on name + artist similarity
+              const norm = (s) => (s||'').toLowerCase().replace(/\(.*?\)|\[.*?\]/g,' ').replace(/feat\..*$|ft\..*$/g,' ').replace(/[^a-z0-9]+/g,' ').trim();
+              const overlap = (want, have) => { const ww=norm(want).split(' ').filter(Boolean); const hs=new Set(norm(have).split(' ').filter(Boolean)); if(!ww.length)return 0; return ww.filter(w=>hs.has(w)).length/ww.length; };
+              let best=null, bestScore=-1;
+              for (const r of results) {
+                const score = overlap(cleanName,r.trackName||'') * 0.6 + overlap(cleanArtist,r.artistName||'') * 0.4;
+                if (score > bestScore) { bestScore=score; best=r; }
+              }
+              if (!best || bestScore < 0.5) { itunesUrlCache.set(cacheKey, null); return resolve(null); }
+              const url = best.artworkUrl100 ? best.artworkUrl100.replace('100x100bb','500x500bb') : null;
+              itunesUrlCache.set(cacheKey, url);
+              if (itunesUrlCache.size > 100) itunesUrlCache.delete(itunesUrlCache.keys().next().value);
+              resolve(url);
+            } catch(e) { resolve(null); }
+          });
+        }
+      );
+      req.on('error', () => resolve(null));
+      req.on('timeout', () => { req.destroy(); resolve(null); });
+      req.end();
+    });
+  }
 
   // ---- Discord RPC ----
   async function connectDiscord() {
@@ -1409,10 +1460,42 @@ function runApp() {
           const prevSongKey = previousTrackKey ? previousTrackKey.replace(/\|(playing|paused)$/, '') : null;
           if (newSongKey !== prevSongKey && track.state === 'playing') {
             recordPlay(track);
+            // If the song that just ended was Markus's requested song, party!
+            if (pet.alive && pet.songRequest && prevSongKey) {
+              const prevName = prevSongKey.split('|')[0] || '';
+              if (prevName.toLowerCase() === pet.songRequest.name.toLowerCase()) {
+                pet.partyMode = true;
+                pet.partyUntilSong = newSongKey;
+                pet.hunger = Math.min(100, pet.hunger + 35);
+                pet.happiness = Math.min(100, pet.happiness + 25);
+                pet.songRequest = null;
+                savePet();
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  mainWindow.webContents.send('pet-changed');
+                  mainWindow.webContents.send('pet-party'); // triggers confetti
+                }
+                log.info('Pet party triggered!');
+              }
+            }
+            // Clear party mode when a genuinely new song starts
+            if (pet.partyMode && pet.partyUntilSong && newSongKey !== pet.partyUntilSong) {
+              pet.partyMode = false; pet.partyUntilSong = null; savePet();
+              if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet-changed');
+            }
           }
 
           updateTrayTooltip(`${track.state === 'playing' ? '▶' : '⏸'} ${track.name} — ${track.artist}`);
           log.info('Now:', track.state, track.name, '-', track.artist);
+        // Fetch iTunes artwork for app window + embed
+        if (isNewEvent) {
+          fetchiTunesArtworkUrl(track.name, track.artist).then((url) => {
+            if (url) {
+              currentArtHttpUrl = url;
+              if (mainWindow && !mainWindow.isDestroyed()) pushStateUpdate(lastRawTrack || track);
+            }
+            postNowPlayingEmbed(track, url, ARTWORK_BOT_TOKEN, ARTWORK_CHANNEL_ID).catch(() => {});
+          }).catch(() => {});
+        }
         if (track.state === 'playing') {
           try {
             updatePet();
@@ -1630,6 +1713,7 @@ function runApp() {
       lastTrackState = {
         ...track,
         artworkDataUrl: artworkToDataUrl(track.artworkPath),
+        artworkHttpUrl: currentArtHttpUrl,
       };
     }
     if (!mainWindow || mainWindow.isDestroyed()) return;

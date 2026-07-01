@@ -2545,10 +2545,12 @@ function renderPet(pet) {
     if (cls) document.body.classList.add(cls);
   }
 
-  // Mood classes on body
-  document.body.classList.remove('pet-happy', 'pet-sad', 'pet-sick', 'pet-dead');
+  // Mood + party classes
+  document.body.classList.remove('pet-happy', 'pet-sad', 'pet-sick', 'pet-dead', 'pet-party');
   if (!pet.alive) {
     document.body.classList.add('pet-dead');
+  } else if (pet.partyMode) {
+    document.body.classList.add('pet-party');
   } else if (pet.cleanliness < 30) {
     document.body.classList.add('pet-sick');
   } else if (pet.happiness >= 70) {
@@ -2568,7 +2570,9 @@ function renderPet(pet) {
   } else {
     deadMsg.style.display = 'none';
     actions.style.display = 'flex';
-    if (pet.songRequest) {
+    if (pet.partyMode) {
+      cravingEl.textContent = 'PARTY TIME! His friends came to celebrate!';
+    } else if (pet.songRequest) {
       cravingEl.textContent = `Wants to hear: "${pet.songRequest.name}" by ${pet.songRequest.artist}`;
     } else if (pet.hunger < 60) {
       cravingEl.textContent = 'Getting hungry — keep the music playing!';
@@ -2626,5 +2630,11 @@ function loadPet() {
 
 // Refresh the pet live when the main process feeds it (genre matched).
 window.musicToDiscord.onPetChanged(() => {
+  if (document.body.classList.contains('tab-pet')) loadPet();
+});
+
+// Fire confetti when Markus throws a party.
+window.musicToDiscord.onPetParty(() => {
+  celebrate();
   if (document.body.classList.contains('tab-pet')) loadPet();
 });

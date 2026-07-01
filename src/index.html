@@ -1525,6 +1525,47 @@
     0%, 100% { transform: translateY(0) scale(1, 1); }
     50%      { transform: translateY(-8px) scale(1.02, 0.98); }
   }
+  /* ---- Bear friends (party mode) ---- */
+  #pet-friends {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: flex-end;
+    justify-content: space-between;
+    pointer-events: none;
+  }
+  body.pet-party #pet-friends { display: flex; }
+  .pet-friend { flex-shrink: 0; }
+  .friend-body { fill: #6b4226; transition: fill 0.3s; }
+  .friend-ear { fill: #6b4226; }
+  .friend-ear-inner { fill: #9b6b46; }
+  .friend-snout { fill: #c4936b; }
+  .friend-nose { fill: #2a1a0e; }
+  .friend-mouth { stroke: #2a1a0e; }
+  .friend-left {
+    animation: friend-bounce-left 0.6s ease-in-out infinite;
+    transform-origin: bottom center;
+  }
+  .friend-right {
+    animation: friend-bounce-right 0.6s ease-in-out infinite 0.3s;
+    transform-origin: bottom center;
+  }
+  @keyframes friend-bounce-left {
+    0%, 100% { transform: rotate(-8deg) translateY(0); }
+    50%      { transform: rotate(4deg) translateY(-8px); }
+  }
+  @keyframes friend-bounce-right {
+    0%, 100% { transform: rotate(8deg) translateY(0); }
+    50%      { transform: rotate(-4deg) translateY(-8px); }
+  }
+  /* Party mode: Markus bounces faster and glows */
+  body.pet-party #pet-creature {
+    animation: pet-bob 0.5s ease-in-out infinite !important;
+    filter: drop-shadow(0 0 12px var(--good));
+  }
+  body.pet-party #pet-body,
+  body.pet-party .pet-ear { fill: var(--good) !important; }
+
   #pet-body { fill: #8a5a2b; transition: fill 0.5s; }
   .pet-ear { fill: #8a5a2b; transition: fill 0.5s; }
   .pet-ear-inner { fill: #b3814f; }
@@ -2459,6 +2500,29 @@
   <div id="view-pet">
     <div id="pet-stage">
       <div id="pet-poop-layer"></div>
+      <!-- Bear friends (only visible during party mode) -->
+      <div id="pet-friends">
+        <svg class="pet-friend friend-left" viewBox="0 0 80 80" width="70" height="70">
+          <circle class="friend-ear" cx="24" cy="22" r="10"/>
+          <circle class="friend-ear" cx="56" cy="22" r="10"/>
+          <circle class="friend-ear-inner" cx="24" cy="22" r="5"/>
+          <circle class="friend-ear-inner" cx="56" cy="22" r="5"/>
+          <ellipse class="friend-body" cx="40" cy="48" rx="28" ry="24"/>
+          <ellipse class="friend-snout" cx="40" cy="56" rx="14" ry="10"/>
+          <ellipse class="friend-nose" cx="40" cy="51" rx="4" ry="3"/>
+          <path class="friend-mouth" d="M 33 60 Q 40 66 47 60" fill="none" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <svg class="pet-friend friend-right" viewBox="0 0 80 80" width="70" height="70">
+          <circle class="friend-ear" cx="24" cy="22" r="10"/>
+          <circle class="friend-ear" cx="56" cy="22" r="10"/>
+          <circle class="friend-ear-inner" cx="24" cy="22" r="5"/>
+          <circle class="friend-ear-inner" cx="56" cy="22" r="5"/>
+          <ellipse class="friend-body" cx="40" cy="48" rx="28" ry="24"/>
+          <ellipse class="friend-snout" cx="40" cy="56" rx="14" ry="10"/>
+          <ellipse class="friend-nose" cx="40" cy="51" rx="4" ry="3"/>
+          <path class="friend-mouth" d="M 33 60 Q 40 66 47 60" fill="none" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
       <div id="pet-creature">
         <svg viewBox="0 0 140 140" width="150" height="150">
           <!-- ears -->
