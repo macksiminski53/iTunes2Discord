@@ -40,7 +40,8 @@
                             ],
                   "asarUnpack":  [
                                      "src/get-track.ps1",
-                                     "src/get-track-smtc.ps1"
+                                     "src/get-track-smtc.ps1",
+                                     "src/get-track.applescript"
                                  ],
                   "extraResources":  [
                                          {
