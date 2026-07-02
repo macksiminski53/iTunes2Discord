@@ -1229,7 +1229,9 @@ function runApp() {
     }
   }
 
-  // ---- Album artwork upload (Imgur) ----
+  // ---- Album artwork upload ----
+  // Uses imgbb (free, no rate limit issues) instead of Imgur.
+  const IMGBB_API_KEY = 'YOUR_IMGBB_API_KEY_HERE'; // set locally
   // Discord Rich Presence images must be either pre-uploaded asset keys or a
   // public https:// URL it can fetch -- it can't read files off the user's
   // disk. So for real per-song album art, we upload each track's artwork to
@@ -1332,12 +1334,17 @@ function runApp() {
     const endTimestamp = Math.floor(now + (track.duration - track.position) * 1000);
 
     // Try to use real album art from Imgur. Discord RPC accepts external
-    // image URLs via `largeImageURL` (not `largeImageKey`). Fall back to
-    // the static `app_logo` asset key if no artwork or upload fails.
+    // Use the iTunes artwork URL directly as largeImageURL (Discord fetches
+    // it server-side, so external URLs work here unlike plain largeImageKey).
+    // Fall back to Imgur upload if we have a local artwork file (rare).
     let largeImageKey = 'app_logo';
     let largeImageURL = undefined;
 
-    if (track.artworkPath) {
+    if (currentArtHttpUrl) {
+      // iTunes URL works directly -- no upload needed.
+      largeImageKey = undefined;
+      largeImageURL = currentArtHttpUrl;
+    } else if (track.artworkPath) {
       const uploadedUrl = await uploadArtworkToImgur(track.artworkPath);
       if (uploadedUrl) {
         largeImageKey = undefined;
@@ -1375,7 +1382,11 @@ function runApp() {
 
   // ---- Polling loop ----
   let firstPollDone = false;
-  let lastPollAt = null; // Date.now() of the previous poll, used to accumulate real elapsed listening time below
+  let lastPollAt = null;
+  let currentArtHttpUrl = null; // iTunes artwork URL for current song
+  let lastRawTrack = null;      // most recent raw track for re-push after art fetch
+  let currentSongTrack = null;  // song currently being listened to
+  let currentSongListenedSec = 0; // Date.now() of the previous poll, used to accumulate real elapsed listening time below
 
   async function pollLoop() {
     if (!enabled) {
@@ -1461,9 +1472,12 @@ function runApp() {
           if (newSongKey !== prevSongKey && track.state === 'playing') {
             recordPlay(track);
             // If the song that just ended was Markus's requested song, party!
+            // Check BEFORE anything clears the request.
             if (pet.alive && pet.songRequest && prevSongKey) {
-              const prevName = prevSongKey.split('|')[0] || '';
-              if (prevName.toLowerCase() === pet.songRequest.name.toLowerCase()) {
+              const prevName = prevSongKey.split('|')[0].toLowerCase().trim();
+              const reqName = pet.songRequest.name.toLowerCase().trim();
+              log.info('Party check: prev=' + prevName + ' req=' + reqName);
+              if (prevName === reqName || prevName.includes(reqName) || reqName.includes(prevName)) {
                 pet.partyMode = true;
                 pet.partyUntilSong = newSongKey;
                 pet.hunger = Math.min(100, pet.hunger + 35);
@@ -1472,7 +1486,7 @@ function runApp() {
                 savePet();
                 if (mainWindow && !mainWindow.isDestroyed()) {
                   mainWindow.webContents.send('pet-changed');
-                  mainWindow.webContents.send('pet-party'); // triggers confetti
+                  mainWindow.webContents.send('pet-party');
                 }
                 log.info('Pet party triggered!');
               }
@@ -1503,7 +1517,40 @@ function runApp() {
               pet.listenedSecsSinceLastFeed = (pet.listenedSecsSinceLastFeed||0) + (POLL_INTERVAL_MS/1000);
               if (pet.listenedSecsSinceLastFeed >= 300) { pet.listenedSecsSinceLastFeed=0; pet.hunger=Math.min(100,pet.hunger+20); pet.happiness=Math.min(100,pet.happiness+5); }
               if (pet.songRequest && track.name && track.name.toLowerCase()===pet.songRequest.name.toLowerCase()) { pet.hunger=Math.min(100,pet.hunger+30); pet.happiness=Math.min(100,pet.happiness+20); pet.songRequest=null; }
-              if (!pet.songRequest && playHistory.length>0) { const e=playHistory[playHistory.length-1-Math.floor(Math.random()*Math.min(20,playHistory.length))]; if(e)pet.songRequest={name:e.name,artist:e.artist}; }
+              if (!pet.songRequest && playHistory.length>0) {
+                // Pick from deduplicated history, weighted toward less-played songs for variety.
+                // Filter out browser/YouTube media — these have no real artist or contain
+                // source tags like "(youtube)" in the name.
+                const seen=new Set(); const pool=[];
+                const counts={};
+                const isMusicTrack = (e) => {
+                  if (!e.name || !e.artist) return false;
+                  const nl = e.name.toLowerCase();
+                  const al = (e.artist || '').toLowerCase();
+                  // Reject obvious browser/YouTube media
+                  if (nl.includes('youtube') || nl.includes('soundcloud') || nl.includes('spotify')) return false;
+                  if (al.includes('youtube') || al === 'unknown' || al === '') return false;
+                  // Reject very long titles (YouTube video titles)
+                  if (e.name.length > 60) return false;
+                  // Reject titles that look like clickbait/questions
+                  if (nl.includes('what if') || nl.includes('why did') || nl.includes('how to') || nl.includes('elon') || nl.includes('?')) return false;
+                  // Require the entry has a real duration (songs are typically 90s-600s)
+                  if (e.trackLength && (e.trackLength < 60 || e.trackLength > 900)) return false;
+                  return true;
+                };
+                for (const e of playHistory) {
+                  if (!isMusicTrack(e)) continue;
+                  const k=e.name+'||'+(e.artist||'');
+                  counts[k]=(counts[k]||0)+1;
+                  if(!seen.has(k)){seen.add(k);pool.push({name:e.name,artist:e.artist||'',count:counts[k]});}
+                }
+                if (pool.length>0) {
+                  pool.sort((a,b)=>a.count-b.count);
+                  const bottom=pool.slice(0,Math.max(1,Math.floor(pool.length*0.6)));
+                  const pick=bottom[Math.floor(Math.random()*bottom.length)];
+                  pet.songRequest={name:pick.name,artist:pick.artist};
+                }
+              }
               pet.vibingGenre='hiphop'; pet.vibingUntil=Date.now()+20000;
               savePet();
               if (mainWindow&&!mainWindow.isDestroyed()) mainWindow.webContents.send('pet-changed');
@@ -2421,6 +2468,27 @@ function runApp() {
   // Badges unlocked from local play-history stats. Each has an id, emoji,
   // title, description, and a check(stats) predicate. Unlocked IDs are saved
   // to disk so we only notify once per badge. Entirely local -- no network.
+
+  // ---- Listening party ----
+  ipcMain.handle('get-listening-party', async () => {
+    try {
+      const { listPresence } = require('./firestore');
+      const all = await listPresence();
+      const now = Date.now();
+      const STALE_MS = 2 * 60 * 1000;
+      const active = all
+        .filter(p => p.username && p.username !== username)
+        .filter(p => { if (!p.updatedAt) return false; return now - new Date(p.updatedAt).getTime() < STALE_MS; })
+        .map(p => ({
+          username: p.username, song: p.song || '', artist: p.artist || '',
+          sameSong: !!(currentSongTrack && p.song === currentSongTrack.name && p.artist === currentSongTrack.artist),
+        }));
+      return { listeners: active, total: active.length };
+    } catch(e) {
+      return { listeners: [], total: 0, unavailable: true };
+    }
+  });
+
   app.whenReady().then(() => {
     showWindowFromOtherInstance = createWindow;
 
