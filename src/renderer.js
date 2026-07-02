@@ -2623,8 +2623,33 @@ function loadPet() {
   if (cleanBtn) cleanBtn.addEventListener('click', () => window.musicToDiscord.petClean().then(renderPet));
   if (playBtn) playBtn.addEventListener('click', () => window.musicToDiscord.petPlay().then(renderPet));
   if (renameBtn) renameBtn.addEventListener('click', () => {
-    const name = prompt('Name your pet:');
-    if (name) window.musicToDiscord.petRename(name).then(renderPet);
+    const input = document.getElementById('pet-rename-input');
+    const confirm = document.getElementById('pet-rename-confirm');
+    const nameSpan = document.getElementById('pet-name');
+    renameBtn.style.display = 'none';
+    input.value = nameSpan.textContent || '';
+    input.style.display = '';
+    confirm.style.display = '';
+    input.focus();
+    input.select();
+
+    function doRename() {
+      const name = input.value.trim();
+      input.style.display = 'none';
+      confirm.style.display = 'none';
+      renameBtn.style.display = '';
+      if (name) window.musicToDiscord.petRename(name).then(renderPet);
+    }
+
+    confirm.onclick = doRename;
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') doRename();
+      if (e.key === 'Escape') {
+        input.style.display = 'none';
+        confirm.style.display = 'none';
+        renameBtn.style.display = '';
+      }
+    };
   });
 })();
 

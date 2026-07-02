@@ -48,6 +48,11 @@ function runApp() {
     unbanUsername,
     isUsernameBanned,
     listBannedUsernames,
+    // Renamed on import: main.js already has its own setPresence (the
+    // Discord RPC one) -- these are the Firestore listening-party ones.
+    setPresence: setFirestorePresence,
+    clearPresence: clearFirestorePresence,
+    listPresence,
   } = require('./firestore');
 
   // ---- CONFIG ----
@@ -345,7 +350,10 @@ function runApp() {
   ipcMain.handle('pet-clean', () => {
     updatePet();
     if (!pet.alive) return pet;
-    if (pet.poop > 0) { pet.poop--; pet.cleanliness = Math.min(100, pet.cleanliness + 20); pet.happiness = Math.min(100, pet.happiness + 5); savePet(); }
+    if (pet.poop > 0) { pet.poop--; }
+    pet.cleanliness = Math.min(100, pet.cleanliness + 25);
+    pet.happiness = Math.min(100, pet.happiness + 5);
+    savePet();
     return pet;
   });
   ipcMain.handle('pet-play', () => {
@@ -534,9 +542,12 @@ function runApp() {
   let lastPosition = null;
   let lastDiscordPushAt = 0; // Date.now() of the last actual setActivity call
   let lastTrackState = null; // cached for the window's initial state request
+  let currentArtHttpUrl = null; // most recent iTunes artwork URL, used by pushStateUpdate
   let pollTimer = null;
   let enabled = true;
   let warnedUnsupportedPlatform = false;
+  let pendingPartyTimer = null;   // setTimeout handle for the 5s bear party delay
+  let pendingPartySong = null;    // song key we're waiting on (to detect skips)
 
   // ---- Leaderboard state ----
   let username = null; // null until the user has set one via the setup prompt
@@ -1332,32 +1343,31 @@ function runApp() {
     const endTimestamp = Math.floor(now + (track.duration - track.position) * 1000);
 
     // Try to use real album art from Imgur. Discord RPC accepts external
-    // image URLs via `largeImageURL` (not `largeImageKey`). Fall back to
-    // the static `app_logo` asset key if no artwork or upload fails.
+    // image URLs passed directly as largeImageKey (not a separate
+    // largeImageUrl field -- that field doesn't exist in this library).
+    // Fall back to the static app_logo asset key if no artwork or upload fails.
     let largeImageKey = 'app_logo';
-    let largeImageURL = undefined;
 
     if (track.artworkPath) {
+      log.info('setPresence: track.artworkPath =', track.artworkPath, '- attempting Imgur upload');
       const uploadedUrl = await uploadArtworkToImgur(track.artworkPath);
       if (uploadedUrl) {
-        largeImageKey = undefined;
-        largeImageURL = uploadedUrl;
+        log.info('setPresence: Imgur upload succeeded ->', uploadedUrl);
+        largeImageKey = uploadedUrl;
+      } else {
+        log.warn('setPresence: Imgur upload returned no URL, falling back to app_logo');
       }
+    } else {
+      log.info('setPresence: track.artworkPath is empty/falsy, falling back to app_logo');
     }
 
     const activity = {
       details: (track.name || 'Unknown track').slice(0, 128),
       state: (track.artist ? `by ${track.artist}` : 'Unknown artist').slice(0, 128),
+      largeImageKey,
       largeImageText: (track.album || '').slice(0, 128),
       instance: false,
     };
-
-    // Only set one of largeImageKey OR largeImageURL — not both
-    if (largeImageURL) {
-      activity.largeImageURL = largeImageURL;
-    } else {
-      activity.largeImageKey = largeImageKey;
-    }
 
     if (track.state === 'playing') {
       activity.startTimestamp = startTimestamp;
@@ -1395,6 +1405,7 @@ function runApp() {
           lastPosition = null;
           if (connected && rpc?.user) await rpc.user.clearActivity().catch(() => {});
           updateTrayTooltip(`${APP_NAME} — nothing playing`);
+          if (username) clearFirestorePresence(username).catch(() => {});
         }
         pushStateUpdate(track);
       } else {
@@ -1460,10 +1471,31 @@ function runApp() {
           const prevSongKey = previousTrackKey ? previousTrackKey.replace(/\|(playing|paused)$/, '') : null;
           if (newSongKey !== prevSongKey && track.state === 'playing') {
             recordPlay(track);
-            // If the song that just ended was Markus's requested song, party!
-            if (pet.alive && pet.songRequest && prevSongKey) {
-              const prevName = prevSongKey.split('|')[0] || '';
-              if (prevName.toLowerCase() === pet.songRequest.name.toLowerCase()) {
+
+            // -- Bear party logic --
+            // If a party was pending for the PREVIOUS song and the user
+            // skipped before the 5s window closed, penalise happiness.
+            if (pendingPartyTimer !== null && pendingPartySong && pendingPartySong !== newSongKey) {
+              clearTimeout(pendingPartyTimer);
+              pendingPartyTimer = null;
+              pendingPartySong = null;
+              if (pet.alive) {
+                pet.happiness = Math.max(0, pet.happiness - 50);
+                savePet();
+                if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet-changed');
+                log.info('Pet: requested song skipped early, happiness -50');
+              }
+            }
+
+            // If THIS new song is Markus's requested song, start the 5s timer.
+            if (pet.alive && pet.songRequest &&
+                track.name.toLowerCase() === pet.songRequest.name.toLowerCase()) {
+              pendingPartySong = newSongKey;
+              pendingPartyTimer = setTimeout(() => {
+                pendingPartyTimer = null;
+                pendingPartySong = null;
+                // Only fire if the same song is still playing
+                if (!pet.alive || !pet.songRequest) return;
                 pet.partyMode = true;
                 pet.partyUntilSong = newSongKey;
                 pet.hunger = Math.min(100, pet.hunger + 35);
@@ -1472,11 +1504,12 @@ function runApp() {
                 savePet();
                 if (mainWindow && !mainWindow.isDestroyed()) {
                   mainWindow.webContents.send('pet-changed');
-                  mainWindow.webContents.send('pet-party'); // triggers confetti
+                  mainWindow.webContents.send('pet-party');
                 }
                 log.info('Pet party triggered!');
-              }
+              }, 5000);
             }
+
             // Clear party mode when a genuinely new song starts
             if (pet.partyMode && pet.partyUntilSong && newSongKey !== pet.partyUntilSong) {
               pet.partyMode = false; pet.partyUntilSong = null; savePet();
@@ -1491,10 +1524,14 @@ function runApp() {
           fetchiTunesArtworkUrl(track.name, track.artist).then((url) => {
             if (url) {
               currentArtHttpUrl = url;
-              if (mainWindow && !mainWindow.isDestroyed()) pushStateUpdate(lastRawTrack || track);
+              if (mainWindow && !mainWindow.isDestroyed()) pushStateUpdate(track);
             }
             postNowPlayingEmbed(track, url, ARTWORK_BOT_TOKEN, ARTWORK_CHANNEL_ID).catch(() => {});
           }).catch(() => {});
+        }
+        // Update Firestore listening party presence (fire-and-forget)
+        if (username && track.state === 'playing' && isNewEvent) {
+          setFirestorePresence(username, { song: track.name, artist: track.artist }).catch(() => {});
         }
         if (track.state === 'playing') {
           try {
@@ -1502,7 +1539,6 @@ function runApp() {
             if (pet.alive) {
               pet.listenedSecsSinceLastFeed = (pet.listenedSecsSinceLastFeed||0) + (POLL_INTERVAL_MS/1000);
               if (pet.listenedSecsSinceLastFeed >= 300) { pet.listenedSecsSinceLastFeed=0; pet.hunger=Math.min(100,pet.hunger+20); pet.happiness=Math.min(100,pet.happiness+5); }
-              if (pet.songRequest && track.name && track.name.toLowerCase()===pet.songRequest.name.toLowerCase()) { pet.hunger=Math.min(100,pet.hunger+30); pet.happiness=Math.min(100,pet.happiness+20); pet.songRequest=null; }
               if (!pet.songRequest && playHistory.length>0) { const e=playHistory[playHistory.length-1-Math.floor(Math.random()*Math.min(20,playHistory.length))]; if(e)pet.songRequest={name:e.name,artist:e.artist}; }
               pet.vibingGenre='hiphop'; pet.vibingUntil=Date.now()+20000;
               savePet();
@@ -2091,6 +2127,29 @@ function runApp() {
       artworkDataUrl: lastTrackState.artworkDataUrl || null,
       state: lastTrackState.state,
     };
+  });
+
+  ipcMain.handle('get-listening-party', async () => {
+    if (!username) return { total: 0, listeners: [] };
+    try {
+      const now = Date.now();
+      const STALE_MS = 2 * 60 * 1000; // 2 minutes
+      const docs = await listPresence();
+      const active = docs.filter(
+        (d) => d.username !== username && d.updatedAt && (now - new Date(d.updatedAt).getTime()) < STALE_MS
+      );
+      const currentSong = lastTrackState?.name || null;
+      const listeners = active.map((d) => ({
+        username: d.username,
+        song: d.song || '',
+        artist: d.artist || '',
+        sameSong: !!(currentSong && d.song && d.song === currentSong),
+      }));
+      return { total: listeners.length, listeners };
+    } catch (e) {
+      log.warn('get-listening-party error:', e.message);
+      return { total: 0, listeners: [], unavailable: true };
+    }
   });
 
   ipcMain.handle('get-leaderboard', async () => {

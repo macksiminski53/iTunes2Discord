@@ -135,6 +135,19 @@ internal static class Program
             string artworkPath = "";
             try
             {
+                // Filenames are now unique per run (see below), so nothing
+                // else deletes old ones -- sweep leftovers from previous
+                // invocations here so temp doesn't slowly fill up with
+                // stale album art over a long session.
+                foreach (var oldFile in Directory.GetFiles(Path.GetTempPath(), "itunes2discord-smtc-artwork-*.jpg"))
+                {
+                    try { File.Delete(oldFile); } catch { /* still in use or already gone -- fine, next run will catch it */ }
+                }
+            }
+            catch { /* temp dir enumeration failed -- not worth failing the whole run over */ }
+
+            try
+            {
                 var thumbRef = props.Thumbnail;
                 if (thumbRef != null)
                 {
@@ -169,7 +182,7 @@ internal static class Program
                                     // small ballpark Apple Music's JPEGs were
                                     // already working fine.
                                     var tempDir = Path.GetTempPath();
-                                    var artFile = Path.Combine(tempDir, "itunes2discord-smtc-artwork.jpg");
+                                    var artFile = Path.Combine(tempDir, $"itunes2discord-smtc-artwork-{Guid.NewGuid():N}.jpg");
                                     SaveAsCompressedJpeg(bytes, artFile);
                                     artworkPath = artFile;
                                 }
@@ -178,11 +191,16 @@ internal static class Program
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 // Thumbnail extraction failed -- not critical, continue
                 // without it. Common causes: app didn't provide one, or the
                 // underlying content isn't a directly-savable image format.
+                // Logged to stderr (not stdout, so it doesn't corrupt the
+                // JSON contract) -- main.js's smtc-helper stderr handler
+                // surfaces this in the app log so failures are actually
+                // diagnosable instead of silently vanishing.
+                Console.Error.WriteLine($"Thumbnail extraction failed: {ex}");
             }
 
             var result = new
