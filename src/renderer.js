@@ -300,7 +300,7 @@ function render(state) {
 
     // Album art source: prefer the iTunes HTTP cover (works for Apple Music),
     // fall back to the local data URL (classic iTunes), else the fallback img.
-    const artSrc = track.artworkHttpUrl || track.artworkDataUrl || null;
+    const artSrc = track.artworkDataUrl || track.artworkHttpUrl || null;
     if (artSrc) {
       elArtImg.src = artSrc;
       elArtImg.style.display = 'block';
@@ -1047,6 +1047,8 @@ async function loadWrapped() {
   loadAlbumGallery();
   loadSpotlight();
   loadPlayCountGoal();
+  loadMostSkipped();
+  loadPersonality();
 }
 
 async function renderWrapped(monthKey) {
@@ -1413,6 +1415,73 @@ async function loadThrowback() {
     <div class="tb-label">${esc(data.label)}</div>
     <div class="tb-date">${esc(data.dateStr)} · ${data.totalPlays} song${data.totalPlays === 1 ? '' : 's'} played</div>
     ${songs}
+  `;
+}
+
+async function loadMostSkipped() {
+  let card = document.getElementById('most-skipped-card');
+  if (!card) {
+    card = document.createElement('div');
+    card.id = 'most-skipped-card';
+    card.className = 'wrapped-card';
+    const wrapped = document.getElementById('wrapped-content');
+    if (wrapped) wrapped.appendChild(card);
+  }
+  const data = await window.musicToDiscord.getMostSkipped();
+  if (!data || data.length === 0) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  card.innerHTML = `
+    <div class="wrapped-card-title">⏭ Most Skipped</div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">
+      ${data.slice(0, 5).map((s, i) => `
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(s.name)}</div>
+            <div style="color:var(--text-dim);font-size:11px;">${esc(s.artist)}</div>
+          </div>
+          <div style="margin-left:12px;text-align:right;flex-shrink:0;">
+            <div style="font-weight:700;color:var(--accent);">${s.skips}×</div>
+            <div style="font-size:10px;color:var(--text-dim);">${Math.round(s.skipRate * 100)}% skip rate</div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function loadPersonality() {
+  let card = document.getElementById('personality-card');
+  if (!card) {
+    card = document.createElement('div');
+    card.id = 'personality-card';
+    card.className = 'wrapped-card';
+    const wrapped = document.getElementById('wrapped-content');
+    if (wrapped) wrapped.appendChild(card);
+  }
+  const data = await window.musicToDiscord.getPersonality();
+  if (!data) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  card.innerHTML = `
+    <div class="wrapped-card-title">🧠 Your Listener Personality</div>
+    <div style="text-align:center;margin:16px 0 8px;">
+      <div style="font-size:40px;margin-bottom:8px;">${data.emoji}</div>
+      <div style="font-size:18px;font-weight:800;color:var(--accent);">${esc(data.type)}</div>
+    </div>
+    <div style="font-size:13px;line-height:1.6;color:var(--text-dim);text-align:center;">${esc(data.desc)}</div>
+    <div style="display:flex;justify-content:space-around;margin-top:14px;font-size:12px;">
+      <div style="text-align:center;">
+        <div style="font-weight:700;font-size:16px;">${data.skipRate}%</div>
+        <div style="color:var(--text-dim);">skip rate</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-weight:700;font-size:16px;">${data.uniqueArtists}</div>
+        <div style="color:var(--text-dim);">artists</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-weight:700;font-size:16px;">${data.totalPlays}</div>
+        <div style="color:var(--text-dim);">plays</div>
+      </div>
+    </div>
   `;
 }
 
@@ -2293,6 +2362,9 @@ function triggerEasterEgg(egg) {
     case 'zen':
       themeFlash('#5FE0A8', '#0c1a14', '🧘 Breathe');
       break;
+    case 'peaschickentree':
+      petSound('peaschickentree');
+      break;
     default:
       eggToast('???');
   }
@@ -2662,4 +2734,85 @@ window.musicToDiscord.onPetChanged(() => {
 window.musicToDiscord.onPetParty(() => {
   celebrate();
   if (document.body.classList.contains('tab-pet')) loadPet();
+});
+
+// ---- Pet sound system ----
+// Plays Markus's voice clips from assets/pet-sounds/*.mp3.
+// petSound(clip) is fire-and-forget — interrupts any currently playing clip.
+let _petAudio = null;
+let _petAudioCtx = null;
+function petSound(clip) {
+  if (!clip) return;
+  try {
+    if (_petAudio) { _petAudio.pause(); _petAudio = null; }
+    const base = window.location.protocol === 'file:'
+      ? window.location.pathname.replace(/\/src\/index\.html$/, '').replace(/^\//, '')
+      : '..';
+    const src = `${base}/assets/pet-sounds/${clip}.mp3`;
+    _petAudio = new Audio(src);
+    _petAudio.volume = 1.0;
+    // Route through Web Audio for a gain boost above 100%
+    if (!_petAudioCtx) _petAudioCtx = new AudioContext();
+    const source = _petAudioCtx.createMediaElementSource(_petAudio);
+    const gain = _petAudioCtx.createGain();
+    gain.gain.value = 2.5; // 250% volume
+    source.connect(gain);
+    gain.connect(_petAudioCtx.destination);
+    _petAudioCtx.resume().then(() => _petAudio.play().catch(() => {}));
+  } catch (e) { /* audio not critical */ }
+}
+
+// Play a mood sound whenever main.js fires pet-sound (fed, party, clean, etc.)
+window.musicToDiscord.onPetSound((clip) => petSound(clip));
+
+// ---- Mood-based theme system ----
+const MOOD_THEMES = {
+  hype:     { accent: '#FF4B1F', bg: '#1a0a06', label: '🔥 Hype mode',    vibe: 'vibe-hiphop' },
+  chill:    { accent: '#7C5CBF', bg: '#0e0b18', label: '💜 Chill vibes',  vibe: 'vibe-rbsoul' },
+  sad:      { accent: '#3A6EA5', bg: '#080e18', label: '🌧 Sad hours',    vibe: 'vibe-classical' },
+  happy:    { accent: '#F7C948', bg: '#181208', label: '✨ Good vibes',   vibe: 'vibe-pop' },
+  dark:     { accent: '#3DFF72', bg: '#060e07', label: '🌑 Dark mode',    vibe: 'vibe-rock' },
+  romantic: { accent: '#FF6B9D', bg: '#180810', label: '💕 Romantic',     vibe: 'vibe-jazz' },
+};
+
+let currentMoodTheme = null;
+
+function applyMoodTheme(mood) {
+  const theme = MOOD_THEMES[mood];
+  if (!theme) return;
+  if (currentMoodTheme === mood) return;
+  currentMoodTheme = mood;
+  const root = document.documentElement;
+  root.style.setProperty('--mood-accent', theme.accent);
+  root.style.setProperty('--mood-bg', theme.bg);
+  document.body.classList.add('mood-theme');
+  // Apply matching instrument vibe for Markus (only if he's not already vibing to real genre)
+  if (theme.vibe && !document.body.classList.contains('pet-vibing')) {
+    const vibeClasses = ['vibe-hiphop','vibe-rock','vibe-pop','vibe-rbsoul','vibe-electronic','vibe-jazz','vibe-classical','vibe-country'];
+    document.body.classList.remove(...vibeClasses);
+    document.body.classList.add('pet-vibing', theme.vibe);
+  }
+  eggToast(theme.label, 2000);
+}
+
+function clearMoodTheme() {
+  currentMoodTheme = null;
+  document.body.classList.remove('mood-theme');
+  document.documentElement.style.removeProperty('--mood-accent');
+  document.documentElement.style.removeProperty('--mood-bg');
+}
+
+window.musicToDiscord.onMoodChanged((mood) => applyMoodTheme(mood));
+
+// Apply mood on load in case a song is already playing
+window.musicToDiscord.getMood().then((mood) => { if (mood) applyMoodTheme(mood); }).catch(() => {});
+
+// Play a mood-based greeting when user opens the pet tab
+const _origSwitchTab = window._switchTab;
+document.querySelectorAll('[data-tab]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.dataset.tab === 'pet') {
+      window.musicToDiscord.getPetSound().then(petSound).catch(() => {});
+    }
+  });
 });

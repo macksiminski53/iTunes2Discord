@@ -39,6 +39,8 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   petClean: () => ipcRenderer.invoke('pet-clean'),
   petPlay: () => ipcRenderer.invoke('pet-play'),
   petRename: (name) => ipcRenderer.invoke('pet-rename', name),
+  getPetSound: () => ipcRenderer.invoke('get-pet-sound'),
+  onPetSound: (cb) => ipcRenderer.on('pet-sound', (_e, clip) => cb(clip)),
   onPetChanged: (callback) => ipcRenderer.on('pet-changed', () => callback()),
   onPetParty: (callback) => ipcRenderer.on('pet-party', () => callback()),
   getListeningParty: () => ipcRenderer.invoke('get-listening-party'),
@@ -56,6 +58,10 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
 
   // Recommendations
   getRecommendations: () => ipcRenderer.invoke('get-recommendations'),
+  getMostSkipped: () => ipcRenderer.invoke('get-most-skipped'),
+  getPersonality: () => ipcRenderer.invoke('get-personality'),
+  getMood: () => ipcRenderer.invoke('get-mood'),
+  onMoodChanged: (cb) => ipcRenderer.on('mood-changed', (_e, mood) => cb(mood)),
 
   // Shareable card
   getShareCard: () => ipcRenderer.invoke('get-share-card'),

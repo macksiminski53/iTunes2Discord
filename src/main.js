@@ -325,7 +325,9 @@ function runApp() {
   function updatePet() {
     const now = Date.now();
     if (pet.bornMonth !== getCurrentMonthKey()) {
-      const n = pet.name; pet = defPet(); pet.name = n; pet.bornMonth = getCurrentMonthKey(); savePet(); return;
+      const n = pet.name; pet = defPet(); pet.name = n; pet.bornMonth = getCurrentMonthKey(); savePet();
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet-sound', 'revival');
+      return;
     }
     if (!pet.alive) { pet.lastUpdate = now; return; }
     const h = (now - pet.lastUpdate) / 3600000;
@@ -345,13 +347,30 @@ function runApp() {
   ipcMain.handle('pet-clean', () => {
     updatePet();
     if (!pet.alive) return pet;
-    if (pet.poop > 0) { pet.poop--; pet.cleanliness = Math.min(100, pet.cleanliness + 20); pet.happiness = Math.min(100, pet.happiness + 5); savePet(); }
+    if (pet.poop > 0) { pet.poop--; }
+    pet.cleanliness = Math.min(100, pet.cleanliness + 25);
+    pet.happiness = Math.min(100, pet.happiness + 5);
+    savePet();
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet-sound', 'clean');
     return pet;
   });
   ipcMain.handle('pet-play', () => {
     updatePet();
     if (!pet.alive) return pet;
-    pet.happiness = Math.min(100, pet.happiness + 8); savePet(); return pet;
+    pet.happiness = Math.min(100, pet.happiness + 8); savePet();
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet-sound', 'play');
+    return pet;
+  });
+  ipcMain.handle('get-pet-sound', () => {
+    if (!pet.alive) return 'dead';
+    if (pet.hunger <= 10) return 'starving';
+    if (pet.hunger <= 30 && pet.cleanliness <= 20) return 'sick';
+    if (pet.poop >= 3) return 'poop';
+    if (pet.cleanliness <= 25) return 'dirty';
+    if (pet.hunger <= 40) return 'hungry';
+    if (pet.songRequest) return 'request';
+    if (pet.happiness <= 30) return 'sad';
+    return 'happy';
   });
   ipcMain.handle('pet-rename', (_e, name) => {
     updatePet();
@@ -537,6 +556,10 @@ function runApp() {
   let pollTimer = null;
   let enabled = true;
   let warnedUnsupportedPlatform = false;
+  let currentSongTrack = null;     // track object currently playing
+  let currentSongStartedAt = null; // Date.now() when current song started
+  let pendingPartyTimer = null;    // setTimeout handle for 5s bear party delay
+  let pendingPartySong = null;     // song key we're waiting on
 
   // ---- Leaderboard state ----
   let username = null; // null until the user has set one via the setup prompt
@@ -1143,6 +1166,7 @@ function runApp() {
   // Used for the app window art, now-playing embed, and dynamic theme.
   // Works from song name + artist alone -- no local file needed.
   const itunesUrlCache = new Map();
+  const itunesGenreCache = new Map();
 
   function fetchiTunesArtworkUrl(trackName, artistName) {
     return new Promise((resolve) => {
@@ -1163,7 +1187,6 @@ function runApp() {
               const results = (JSON.parse(body).results || []);
               if (!results.length) { itunesUrlCache.set(cacheKey, null); return resolve(null); }
 
-              // Score each result on name + artist similarity
               const norm = (s) => (s||'').toLowerCase().replace(/\(.*?\)|\[.*?\]/g,' ').replace(/feat\..*$|ft\..*$/g,' ').replace(/[^a-z0-9]+/g,' ').trim();
               const overlap = (want, have) => { const ww=norm(want).split(' ').filter(Boolean); const hs=new Set(norm(have).split(' ').filter(Boolean)); if(!ww.length)return 0; return ww.filter(w=>hs.has(w)).length/ww.length; };
               let best=null, bestScore=-1;
@@ -1173,7 +1196,9 @@ function runApp() {
               }
               if (!best || bestScore < 0.5) { itunesUrlCache.set(cacheKey, null); return resolve(null); }
               const url = best.artworkUrl100 ? best.artworkUrl100.replace('100x100bb','500x500bb') : null;
+              const genre = best.primaryGenreName || null;
               itunesUrlCache.set(cacheKey, url);
+              itunesGenreCache.set(cacheKey, genre);
               if (itunesUrlCache.size > 100) itunesUrlCache.delete(itunesUrlCache.keys().next().value);
               resolve(url);
             } catch(e) { resolve(null); }
@@ -1185,6 +1210,48 @@ function runApp() {
       req.end();
     });
   }
+
+  // Returns the mood for a track based on genre + keyword matching.
+  // Returns one of: 'hype' | 'chill' | 'sad' | 'happy' | 'dark' | 'romantic'
+  function detectMood(trackName, artistName) {
+    const name = (trackName || '').toLowerCase();
+    const artist = (artistName || '').toLowerCase();
+    const combined = name + ' ' + artist;
+    const cacheKey = trackName + '||' + artistName;
+    const genre = (itunesGenreCache.get(cacheKey) || '').toLowerCase();
+
+    // Keyword lists
+    const SAD_WORDS = ['sad','cry','crying','tears','pain','hurt','heartbreak','alone','miss','lost','broken','gone','leave','left','death','die','died','goodbye','sorry','regret','empty','cold','dark','ghost','numb','scar','wound'];
+    const DARK_WORDS = ['devil','demon','evil','hell','blood','kill','murder','die','death','dark','shadow','black','monster','war','rage','hate','666','satan'];
+    const ROMANTIC_WORDS = ['love','heart','baby','girl','boy','kiss','forever','together','marry','wedding','romance','beautiful','darling','honey','sweetheart','valentine'];
+    const HYPE_WORDS = ['fire','lit','banger','turn up','hype','flex','drip','goat','gang','trap','grind','hustle','money','cash','rich','party','vibe','wave'];
+    const CHILL_WORDS = ['chill','relax','dream','float','soft','slow','gentle','peace','quiet','smooth','night','stars','moon','rain','sleep','lofi','lo-fi'];
+
+    const hasWord = (words) => words.some(w => combined.includes(w));
+
+    // Genre-based detection first (more reliable)
+    if (genre.includes('hip-hop') || genre.includes('hip hop') || genre.includes('rap') || genre.includes('trap')) return 'hype';
+    if (genre.includes('r&b') || genre.includes('soul') || genre.includes('neo soul')) return 'chill';
+    if (genre.includes('pop') && !hasWord(SAD_WORDS)) return 'happy';
+    if (genre.includes('electronic') || genre.includes('dance') || genre.includes('edm')) return 'hype';
+    if (genre.includes('country') || genre.includes('folk') || genre.includes('acoustic')) return 'chill';
+    if (genre.includes('classical') || genre.includes('jazz')) return 'chill';
+    if (genre.includes('metal') || genre.includes('rock') || genre.includes('punk')) return 'dark';
+    if (genre.includes('gospel') || genre.includes('christian')) return 'happy';
+
+    // Keyword fallback
+    if (hasWord(DARK_WORDS)) return 'dark';
+    if (hasWord(SAD_WORDS)) return 'sad';
+    if (hasWord(ROMANTIC_WORDS)) return 'romantic';
+    if (hasWord(HYPE_WORDS)) return 'hype';
+    if (hasWord(CHILL_WORDS)) return 'chill';
+
+    return null; // unknown — don't change theme
+  }
+
+  // IPC so renderer can get the current mood
+  let currentMood = null;
+  ipcMain.handle('get-mood', () => currentMood);
 
   // ---- Discord RPC ----
   async function connectDiscord() {
@@ -1237,6 +1304,8 @@ function runApp() {
   // disk. So for real per-song album art, we upload each track's artwork to
   // Imgur anonymously (no account needed) and use the resulting URL.
   const artworkUrlCache = new Map();
+  let lastImgurUrl = null;    // URL for the song currently playing
+  let lastImgurSongKey = null; // song key that lastImgurUrl was uploaded for
 
   function uploadArtworkToImgur(filePath) {
     return new Promise((resolve) => {
@@ -1333,38 +1402,36 @@ function runApp() {
     const startTimestamp = Math.floor(now - track.position * 1000);
     const endTimestamp = Math.floor(now + (track.duration - track.position) * 1000);
 
-    // Try to use real album art from Imgur. Discord RPC accepts external
-    // Use the iTunes artwork URL directly as largeImageURL (Discord fetches
-    // it server-side, so external URLs work here unlike plain largeImageKey).
-    // Fall back to Imgur upload if we have a local artwork file (rare).
+    // Discord RPC via @xhayper/discord-rpc uses largeImageKey for everything --
+    // external URLs go directly in largeImageKey, same as asset keys.
+    // largeImageURL is NOT a real field in this library and silently does nothing.
     let largeImageKey = 'app_logo';
-    let largeImageURL = undefined;
 
-    if (currentArtHttpUrl) {
-      // iTunes URL works directly -- no upload needed.
-      largeImageKey = undefined;
-      largeImageURL = currentArtHttpUrl;
+    const songKey = `${track.name}||${track.artist}`;
+    if (lastImgurSongKey === songKey && lastImgurUrl) {
+      // Same song as last upload — reuse cached URL, no re-upload needed
+      largeImageKey = lastImgurUrl;
     } else if (track.artworkPath) {
       const uploadedUrl = await uploadArtworkToImgur(track.artworkPath);
       if (uploadedUrl) {
-        largeImageKey = undefined;
-        largeImageURL = uploadedUrl;
+        largeImageKey = uploadedUrl;
+        lastImgurUrl = uploadedUrl;
+        lastImgurSongKey = songKey;
       }
+    } else if (currentArtHttpUrl) {
+      largeImageKey = currentArtHttpUrl;
     }
 
     const activity = {
       details: (track.name || 'Unknown track').slice(0, 128),
       state: (track.artist ? `by ${track.artist}` : 'Unknown artist').slice(0, 128),
+      largeImageKey,
       largeImageText: (track.album || '').slice(0, 128),
       instance: false,
+      buttons: [
+        { label: 'Music2Discord', url: 'https://github.com/MackSiminski53/iTunes2Discord' },
+      ],
     };
-
-    // Only set one of largeImageKey OR largeImageURL — not both
-    if (largeImageURL) {
-      activity.largeImageURL = largeImageURL;
-    } else {
-      activity.largeImageKey = largeImageKey;
-    }
 
     if (track.state === 'playing') {
       activity.startTimestamp = startTimestamp;
@@ -1384,9 +1451,6 @@ function runApp() {
   let firstPollDone = false;
   let lastPollAt = null;
   let currentArtHttpUrl = null; // iTunes artwork URL for current song
-  let lastRawTrack = null;      // most recent raw track for re-push after art fetch
-  let currentSongTrack = null;  // song currently being listened to
-  let currentSongListenedSec = 0; // Date.now() of the previous poll, used to accumulate real elapsed listening time below
 
   async function pollLoop() {
     if (!enabled) {
@@ -1470,6 +1534,23 @@ function runApp() {
           const newSongKey = `${track.name}|${track.artist}`;
           const prevSongKey = previousTrackKey ? previousTrackKey.replace(/\|(playing|paused)$/, '') : null;
           if (newSongKey !== prevSongKey && track.state === 'playing') {
+            // Skip detection: if we changed tracks before 15s, mark it
+            const SKIP_THRESHOLD_MS = 15000;
+            if (currentSongTrack && currentSongStartedAt) {
+              const listenedMs = Date.now() - currentSongStartedAt;
+              if (listenedMs < SKIP_THRESHOLD_MS) {
+                for (let i = playHistory.length - 1; i >= 0; i--) {
+                  const e = playHistory[i];
+                  if (e.name === currentSongTrack.name && e.artist === currentSongTrack.artist && !e.skipped) {
+                    e.skipped = true; saveHistory();
+                    log.info(`Skip: "${currentSongTrack.name}" after ${Math.round(listenedMs/1000)}s`);
+                    break;
+                  }
+                }
+              }
+            }
+            currentSongTrack = track;
+            currentSongStartedAt = Date.now();
             recordPlay(track);
             // If the song that just ended was Markus's requested song, party!
             // Check BEFORE anything clears the request.
@@ -1487,6 +1568,7 @@ function runApp() {
                 if (mainWindow && !mainWindow.isDestroyed()) {
                   mainWindow.webContents.send('pet-changed');
                   mainWindow.webContents.send('pet-party');
+                  mainWindow.webContents.send('pet-sound', 'party');
                 }
                 log.info('Pet party triggered!');
               }
@@ -1505,7 +1587,16 @@ function runApp() {
           fetchiTunesArtworkUrl(track.name, track.artist).then((url) => {
             if (url) {
               currentArtHttpUrl = url;
-              if (mainWindow && !mainWindow.isDestroyed()) pushStateUpdate(lastRawTrack || track);
+              if (mainWindow && !mainWindow.isDestroyed()) pushStateUpdate(track);
+              // Re-push presence with the real artwork URL now that it's ready
+              setPresence(track).catch(() => {});
+            }
+            // Detect mood now that genre is cached from iTunes
+            const mood = detectMood(track.name, track.artist);
+            if (mood && mood !== currentMood) {
+              currentMood = mood;
+              if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('mood-changed', mood);
+              log.info('Mood detected:', mood, 'for', track.name);
             }
             postNowPlayingEmbed(track, url, ARTWORK_BOT_TOKEN, ARTWORK_CHANNEL_ID).catch(() => {});
           }).catch(() => {});
@@ -1515,7 +1606,7 @@ function runApp() {
             updatePet();
             if (pet.alive) {
               pet.listenedSecsSinceLastFeed = (pet.listenedSecsSinceLastFeed||0) + (POLL_INTERVAL_MS/1000);
-              if (pet.listenedSecsSinceLastFeed >= 300) { pet.listenedSecsSinceLastFeed=0; pet.hunger=Math.min(100,pet.hunger+20); pet.happiness=Math.min(100,pet.happiness+5); }
+              if (pet.listenedSecsSinceLastFeed >= 300) { pet.listenedSecsSinceLastFeed=0; pet.hunger=Math.min(100,pet.hunger+20); pet.happiness=Math.min(100,pet.happiness+5); if (mainWindow&&!mainWindow.isDestroyed()) mainWindow.webContents.send('pet-sound','fed'); }
               if (pet.songRequest && track.name && track.name.toLowerCase()===pet.songRequest.name.toLowerCase()) { pet.hunger=Math.min(100,pet.hunger+30); pet.happiness=Math.min(100,pet.happiness+20); pet.songRequest=null; }
               if (!pet.songRequest && playHistory.length>0) {
                 // Pick from deduplicated history, weighted toward less-played songs for variety.
@@ -1551,7 +1642,9 @@ function runApp() {
                   pet.songRequest={name:pick.name,artist:pick.artist};
                 }
               }
-              pet.vibingGenre='hiphop'; pet.vibingUntil=Date.now()+20000;
+              const cacheKey2 = track.name + '||' + (track.artist || '');
+              const realGenre = itunesGenreCache.get(cacheKey2) || 'hiphop';
+              pet.vibingGenre = realGenre; pet.vibingUntil=Date.now()+20000;
               savePet();
               if (mainWindow&&!mainWindow.isDestroyed()) mainWindow.webContents.send('pet-changed');
             }
@@ -1813,6 +1906,23 @@ function runApp() {
   ipcMain.handle('set-username', async (_event, name) => {
     const trimmed = (name || '').trim();
     if (!trimmed) return { ok: false, reason: 'empty' };
+
+    // Easter egg codes
+    const EGG_CODES = {
+      'CONFETTI': 'confetti', 'PARTY': 'confetti',
+      'RAINBOW': 'rainbow', 'MATRIX': 'matrix',
+      'GOLDEN': 'golden', 'VAPOR': 'vapor',
+      '808S': 'heartbreak', 'YEEZY': 'yeezy',
+      'BARKING': 'barking', 'SECRET': 'secret',
+      'SNOW': 'snow', 'FIRE': 'fire',
+      'DISCO': 'disco', 'GRADUATION': 'graduation',
+      'DONDA': 'donda', 'STARS': 'stars',
+      'GLITCH': 'glitch', 'ZEN': 'zen',
+      'PEASCHICKENTREE': 'peaschickentree',
+    };
+    if (EGG_CODES[trimmed.toUpperCase()]) {
+      return { ok: false, reason: 'easter_egg', egg: EGG_CODES[trimmed.toUpperCase()] };
+    }
 
     // Owner mode passcode -- a separate, stronger code that toggles owner
     // mode on/off. Checked BEFORE the dev passcode below so it's never
@@ -2127,6 +2237,70 @@ function runApp() {
   });
 
   // ---- Shareable card ----
+  // ---- Skip stats ----
+  ipcMain.handle('get-most-skipped', () => {
+    const skipCounts = {}, playCounts = {};
+    for (const e of playHistory) {
+      const k = `${e.name}||${e.artist}`;
+      playCounts[k] = (playCounts[k] || 0) + 1;
+      if (e.skipped) skipCounts[k] = (skipCounts[k] || 0) + 1;
+    }
+    return Object.entries(skipCounts).map(([k, skips]) => {
+      const [name, artist] = k.split('||');
+      return { name, artist, skips, plays: playCounts[k] || 0, skipRate: skips / (playCounts[k] || 1) };
+    }).sort((a, b) => b.skips - a.skips).slice(0, 10);
+  });
+
+  // ---- Personality type ----
+  ipcMain.handle('get-personality', () => {
+    if (playHistory.length < 20) return null;
+    const totalPlays = playHistory.length;
+    const skippedPlays = playHistory.filter(e => e.skipped).length;
+    const skipRate = skippedPlays / totalPlays;
+    const hourCounts = new Array(24).fill(0);
+    for (const e of playHistory) hourCounts[new Date(e.timestamp).getHours()]++;
+    const lateNight = hourCounts.slice(0, 5).reduce((a, b) => a + b, 0) / totalPlays;
+    const morning = hourCounts.slice(6, 12).reduce((a, b) => a + b, 0) / totalPlays;
+    const evening = hourCounts.slice(18, 24).reduce((a, b) => a + b, 0) / totalPlays;
+    const uniqueArtists = new Set(playHistory.map(e => e.artist)).size;
+    const diversityRate = uniqueArtists / totalPlays;
+    const artistCounts = {};
+    for (const e of playHistory) artistCounts[e.artist] = (artistCounts[e.artist] || 0) + 1;
+    const topArtistPlays = Math.max(...Object.values(artistCounts));
+    const dominance = topArtistPlays / totalPlays;
+    let type, desc, emoji;
+    if (skipRate > 0.4 && diversityRate > 0.3) { type = 'The Curator'; emoji = '🎯'; desc = "You skip a lot but you know exactly what you want. You cycle through artists fast and never settle for less than a banger."; }
+    else if (skipRate > 0.4 && diversityRate <= 0.3) { type = 'The Picky Stan'; emoji = '👑'; desc = "You're super picky but loyal — you skip anything that isn't your fave artist hitting different. Quality over quantity fr."; }
+    else if (skipRate < 0.1 && dominance > 0.5) { type = 'The Devoted'; emoji = '💿'; desc = "You find something you love and you ride it out. One artist, full albums, no skips. Respect."; }
+    else if (lateNight > 0.3 && skipRate < 0.2) { type = 'The Night Owl'; emoji = '🦉'; desc = "You do your best listening after midnight. Low skip rate means you're zoned in — probably studying or just vibing in the dark."; }
+    else if (morning > 0.3 && skipRate < 0.25) { type = 'The Morning Person'; emoji = '☀️'; desc = "Up early, playlist ready. You start the day with music and let it ride — not many skips means you came prepared."; }
+    else if (diversityRate > 0.4 && skipRate < 0.2) { type = 'The Explorer'; emoji = '🧭'; desc = "You listen to a wide range of artists and barely skip anything. You're genuinely open to whatever comes on — rare trait."; }
+    else if (dominance > 0.6) { type = 'The Stan'; emoji = '⭐'; desc = "One artist. That's it. That's the whole personality. No judgment — we know you know every lyric."; }
+    else if (evening > 0.35) { type = 'The Evening Viber'; emoji = '🌆'; desc = "You come alive in the evening. Music hits different at golden hour and you know it."; }
+    else { type = 'The All-Day Listener'; emoji = '🎧'; desc = "You listen all day, across artists, no particular pattern. Music is just always on for you — background, focus, everything."; }
+    return { type, desc, emoji, skipRate: Math.round(skipRate * 100), uniqueArtists, totalPlays };
+  });
+
+  // ---- Listening party ----
+  ipcMain.handle('get-listening-party', async () => {
+    try {
+      const { listPresence } = require('./firestore');
+      const all = await listPresence();
+      const now = Date.now();
+      const STALE_MS = 2 * 60 * 1000;
+      const active = all
+        .filter(p => p.username && p.username !== username)
+        .filter(p => { if (!p.updatedAt) return false; return now - new Date(p.updatedAt).getTime() < STALE_MS; })
+        .map(p => ({
+          username: p.username, song: p.song || '', artist: p.artist || '',
+          sameSong: !!(currentSongTrack && p.song === currentSongTrack.name),
+        }));
+      return { listeners: active, total: active.length };
+    } catch(e) {
+      return { listeners: [], total: 0, unavailable: true };
+    }
+  });
+
   ipcMain.handle('get-share-card', () => {
     if (!lastTrackState || lastTrackState.state === 'not_running' || lastTrackState.state === 'stopped') {
       return null;
@@ -2470,24 +2644,6 @@ function runApp() {
   // to disk so we only notify once per badge. Entirely local -- no network.
 
   // ---- Listening party ----
-  ipcMain.handle('get-listening-party', async () => {
-    try {
-      const { listPresence } = require('./firestore');
-      const all = await listPresence();
-      const now = Date.now();
-      const STALE_MS = 2 * 60 * 1000;
-      const active = all
-        .filter(p => p.username && p.username !== username)
-        .filter(p => { if (!p.updatedAt) return false; return now - new Date(p.updatedAt).getTime() < STALE_MS; })
-        .map(p => ({
-          username: p.username, song: p.song || '', artist: p.artist || '',
-          sameSong: !!(currentSongTrack && p.song === currentSongTrack.name && p.artist === currentSongTrack.artist),
-        }));
-      return { listeners: active, total: active.length };
-    } catch(e) {
-      return { listeners: [], total: 0, unavailable: true };
-    }
-  });
 
   app.whenReady().then(() => {
     showWindowFromOtherInstance = createWindow;

@@ -1,6 +1,6 @@
 {
     "name":  "musictodiscord",
-    "version":  "1.8.3",
+    "version":  "1.8.4",
     "description":  "Shows your Apple Music or iTunes now-playing track as Discord Rich Presence",
     "main":  "src/main.js",
     "author":  "Mak Siminski",
@@ -41,7 +41,7 @@
                   "asarUnpack":  [
                                      "src/get-track.ps1",
                                      "src/get-track-smtc.ps1",
-                                     "src/get-track.applescript"
+                                     "assets/pet-sounds/**"
                                  ],
                   "extraResources":  [
                                          {
@@ -60,7 +60,4 @@
                             "electron-builder":  "^24.13.3"
                         }
 }
-
-
-
 
