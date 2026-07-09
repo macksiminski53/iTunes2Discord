@@ -47,7 +47,7 @@
     --bg: var(--dyn-bg, #0F0F14);
     --bg-raised: var(--dyn-bg-raised, #17171F);
   }
-  html, body, #hero, .wrapped-card, .lb-row, .pill-btn, .tab-btn {
+  html, body, #hero, .lb-row, .pill-btn, .tab-btn {
     transition: background-color 0.6s ease, border-color 0.6s ease;
   }
 
@@ -440,8 +440,8 @@
     0%   { opacity: 0; transform: translateY(8px); }
     100% { opacity: 1; transform: translateY(0); }
   }
-  #view-now-playing, #view-leaderboard, #view-wrapped,
-  #view-share, #view-recs, #view-settings, #view-dev {
+  #view-now-playing, #view-leaderboard,
+  #view-recs, #view-settings, #view-dev {
     animation: view-in 0.3s ease-out;
   }
 
@@ -527,13 +527,12 @@
     animation: art-float 4.5s ease-in-out infinite;
   }
 
-  /* ---- Leaderboard + Wrapped rows stagger in ---- */
+  /* ---- Leaderboard rows stagger in ---- */
   @keyframes row-in {
     0%   { opacity: 0; transform: translateX(-10px); }
     100% { opacity: 1; transform: translateX(0); }
   }
-  .lb-row.row-animate,
-  .wrapped-rank-row.row-animate {
+  .lb-row.row-animate {
     animation: row-in 0.35s ease-out both;
   }
 
@@ -560,97 +559,6 @@
     border: 1px solid rgba(40,22,8,0.8);
     box-shadow: 0 2px 4px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.12);
     color: #f3e6d2;
-  }
-
-  /* Wrapped -> PAPER / NOTEBOOK: cream sheet with ruled lines + margin */
-  body.textures-on.tab-wrapped #view-wrapped {
-    background-color: #f7f3e6;
-    background-image:
-      linear-gradient(90deg, transparent 38px, rgba(220,90,90,0.4) 38px, rgba(220,90,90,0.4) 40px, transparent 40px),
-      repeating-linear-gradient(0deg,
-        transparent 0px, transparent 27px, rgba(80,120,200,0.25) 27px, rgba(80,120,200,0.25) 28px);
-    color: #2a2a2a;
-  }
-  body.textures-on.tab-wrapped .wrapped-card {
-    background: rgba(255,255,255,0.75);
-    border: 1px solid rgba(0,0,0,0.12);
-    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-    color: #2a2a2a;
-  }
-  /* All Wrapped text + cards go dark-on-light so it's readable on paper */
-  body.textures-on.tab-wrapped .wrapped-card-title,
-  body.textures-on.tab-wrapped .wrapped-rank-name,
-  body.textures-on.tab-wrapped .wrapped-stat-value,
-  body.textures-on.tab-wrapped #wrapped-empty,
-  body.textures-on.tab-wrapped #wrapped-month-select { color: #1a1a1a; }
-  body.textures-on.tab-wrapped .wrapped-stat-label,
-  body.textures-on.tab-wrapped .wrapped-rank-sub,
-  body.textures-on.tab-wrapped .tb-date { color: #555; }
-  /* The dark stat tiles + rank rows need light backgrounds on paper */
-  body.textures-on.tab-wrapped .wrapped-stat,
-  body.textures-on.tab-wrapped .wrapped-rank-row,
-  body.textures-on.tab-wrapped #throwback-content,
-  body.textures-on.tab-wrapped .ach-badge {
-    background: rgba(255,255,255,0.65);
-    border-color: rgba(0,0,0,0.12);
-    color: #1a1a1a;
-  }
-  body.textures-on.tab-wrapped .wrapped-rank-count,
-  body.textures-on.tab-wrapped .tb-song,
-  body.textures-on.tab-wrapped #ach-progress { color: #555; }
-  body.textures-on.tab-wrapped #wrapped-month-select {
-    background: rgba(255,255,255,0.8);
-    border-color: rgba(0,0,0,0.2);
-  }
-
-  /* Share -> VINTAGE TRAVEL POSTCARD: linen-sky gradient with diagonal
-     sunburst rays and a white deckle border, evoking a "Greetings from..."
-     postcard. All CSS -- no image used. */
-  body.textures-on.tab-share #view-share {
-    background-color: #6fb7d4;
-    background-image:
-      /* diagonal sunburst rays (orange + gold), fanning from lower-left */
-      repeating-linear-gradient(48deg,
-        rgba(247,148,42,0.0) 0px, rgba(247,148,42,0.0) 46px,
-        rgba(247,148,42,0.55) 46px, rgba(247,148,42,0.55) 70px,
-        rgba(255,205,80,0.55) 70px, rgba(255,205,80,0.55) 94px,
-        rgba(247,148,42,0.0) 94px, rgba(247,148,42,0.0) 150px),
-      /* sky: warm linen blue, lighter at top */
-      linear-gradient(180deg, #8fd0e6 0%, #6fb7d4 45%, #7c9fd0 100%),
-      /* faint linen weave texture */
-      repeating-linear-gradient(0deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 3px);
-    border: 12px solid #fbf7ec;
-    box-shadow:
-      inset 0 0 0 2px rgba(0,0,0,0.12),
-      inset 0 0 60px rgba(0,0,0,0.15);
-    position: relative;
-  }
-  /* Subtle vignette + grain so it reads as aged print, not flat digital */
-  body.textures-on.tab-share #view-share::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background:
-      radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.18) 100%);
-    pointer-events: none;
-    mix-blend-mode: multiply;
-  }
-  /* The share card itself becomes a bright postcard panel */
-  body.textures-on.tab-share #share-card {
-    background: rgba(255,253,245,0.92);
-    border: 1px solid rgba(0,0,0,0.15);
-    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
-    color: #1a2a35;
-  }
-  body.textures-on.tab-share #share-card-name,
-  body.textures-on.tab-share #share-card-artist,
-  body.textures-on.tab-share #share-card-label,
-  body.textures-on.tab-share #share-card-app,
-  body.textures-on.tab-share #share-card-album { color: #1a2a35; }
-  body.textures-on.tab-share #share-copy-btn,
-  body.textures-on.tab-share #share-copy-status {
-    color: #fbf7ec;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.4);
   }
 
   /* For You -> BULLETIN BOARD: cork texture with a wooden frame */
@@ -1301,32 +1209,6 @@
     display: block;
   }
   .text-link-btn.danger-text { color: #ED4245; }
-  /* ---- Wrapped view ---- */
-  #view-wrapped {
-    display: none;
-    flex-direction: column;
-    overflow-y: auto;
-    padding: 20px 20px 28px;
-    gap: 14px;
-  }
-  body.tab-wrapped #view-wrapped { display: flex; }
-  body.tab-wrapped #view-now-playing,
-  body.tab-wrapped #view-leaderboard { display: none; }
-
-  #wrapped-month-select {
-    -webkit-app-region: no-drag;
-    background: var(--bg-raised);
-    border: 1px solid var(--divider);
-    color: var(--text);
-    font-size: 12px;
-    font-weight: 600;
-    padding: 7px 10px;
-    border-radius: 8px;
-    outline: none;
-    cursor: pointer;
-    width: 100%;
-  }
-  #wrapped-month-select:focus { border-color: var(--indigo); }
 
   #clock-style-select, #sleep-select {
     background: var(--bg);
@@ -1441,8 +1323,6 @@
   body.mini-mode #eyebrow,
   body.mini-mode #track-artist,
   body.mini-mode #view-leaderboard,
-  body.mini-mode #view-wrapped,
-  body.mini-mode #view-share,
   body.mini-mode #view-recs,
   body.mini-mode #view-settings,
   body.mini-mode #view-dev {
@@ -1648,493 +1528,6 @@
   #pet-dead-msg { margin-top: 16px; font-size: 13px; color: var(--text-dim); text-align: center; max-width: 260px; }
 
   /* ---- Music Pet end ---- */
-  #heatmap {
-    display: grid;
-    grid-template-columns: repeat(24, 1fr);
-    gap: 2px;
-  }
-  .hm-cell {
-    aspect-ratio: 1;
-    border-radius: 2px;
-    background: var(--divider);
-  }
-  #heatmap-legend {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    justify-content: flex-end;
-    font-size: 10px;
-    color: var(--text-dim);
-    margin-top: 8px;
-  }
-  .hm-legend-cells { display: inline-flex; gap: 2px; }
-  .hm-legend-cells span { width: 10px; height: 10px; border-radius: 2px; }
-
-  /* ---- Album gallery ---- */
-  #album-gallery {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
-    gap: 8px;
-  }
-  .album-cell {
-    aspect-ratio: 1;
-    border-radius: 8px;
-    overflow: hidden;
-    background: var(--bg);
-    position: relative;
-  }
-  .album-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .album-cell .album-fallback {
-    width: 100%; height: 100%;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--text-dim); font-size: 20px;
-  }
-
-  /* ---- Artist spotlight ---- */
-  #spotlight-content .spot-artist { font-size: 22px; font-weight: 800; color: var(--text); }
-  #spotlight-content .spot-meta { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
-  #spotlight-content .spot-song { font-size: 13px; color: var(--indigo); margin-top: 6px; font-weight: 600; }
-
-  /* ---- Play count goal ---- */
-  #playcount-content .pc-song { font-size: 15px; font-weight: 700; color: var(--text); }
-  #playcount-content .pc-count { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
-  #playcount-content .pc-goal { font-size: 13px; color: var(--good); margin-top: 6px; font-weight: 600; }
-
-  /* ---- Listening party feed ---- */
-  #party-feed { display: flex; flex-direction: column; gap: 8px; }
-  .party-empty { font-size: 13px; color: var(--text-dim); }
-  .party-feed-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
-    border-radius: 10px;
-    background: var(--bg);
-    border: 1px solid var(--divider);
-    font-size: 13px;
-  }
-  .party-feed-row.same-song { border-color: var(--good); }
-  .party-feed-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--good); box-shadow: 0 0 6px var(--good); flex-shrink: 0;
-  }
-  .party-feed-info { flex: 1; min-width: 0; }
-  .party-feed-user { font-weight: 700; color: var(--text); }
-  .party-feed-song {
-    color: var(--text-dim);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-
-  /* ---- Recent history timeline ---- */
-  #history-search {
-    width: 100%;
-    background: var(--bg);
-    border: 1px solid var(--divider);
-    color: var(--text);
-    border-radius: 8px;
-    padding: 8px 10px;
-    font-size: 13px;
-    margin-bottom: 10px;
-    -webkit-app-region: no-drag;
-  }
-  #history-search:focus { border-color: var(--indigo); outline: none; }
-  #history-list { display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow-y: auto; }
-  .history-row {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 6px 4px;
-    font-size: 13px;
-    border-bottom: 1px solid var(--divider);
-  }
-  .history-name { font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
-  .history-artist { color: var(--text-dim); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .history-time { color: var(--text-dim); font-size: 11px; flex-shrink: 0; }
-  .history-empty { font-size: 13px; color: var(--text-dim); padding: 8px 0; }
-
-  /* ---- Daily goal ring ---- */
-  #daily-goal-content {
-    display: flex;
-    align-items: center;
-    gap: 18px;
-  }
-  #goal-ring { flex-shrink: 0; transform: rotate(-90deg); }
-  .goal-ring-bg {
-    fill: none;
-    stroke: var(--divider);
-    stroke-width: 9;
-  }
-  .goal-ring-fill {
-    fill: none;
-    stroke: var(--indigo);
-    stroke-width: 9;
-    stroke-linecap: round;
-    stroke-dasharray: 326.7;
-    stroke-dashoffset: 326.7;
-    transition: stroke-dashoffset 0.8s cubic-bezier(0.22, 1, 0.36, 1);
-  }
-  #goal-ring-pct {
-    transform: rotate(90deg);
-    transform-origin: 60px 60px;
-    fill: var(--text);
-    font-size: 22px;
-    font-weight: 800;
-  }
-  #goal-info { flex: 1; }
-  #goal-status { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
-  .goal-edit-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    color: var(--text-dim);
-  }
-  #goal-input {
-    width: 60px;
-    background: var(--bg);
-    border: 1px solid var(--divider);
-    color: var(--text);
-    border-radius: 6px;
-    padding: 4px 6px;
-    font-size: 12px;
-    -webkit-app-region: no-drag;
-  }
-  #goal-input:focus { border-color: var(--indigo); outline: none; }
-
-  /* ---- Achievements grid ---- */
-  #achievements-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
-    gap: 10px;
-  }
-  .ach-badge {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 4px;
-    padding: 10px 6px;
-    border-radius: 12px;
-    background: var(--bg);
-    border: 1px solid var(--divider);
-    cursor: default;
-    transition: transform 0.15s ease, border-color 0.2s ease;
-  }
-  .ach-badge:hover { transform: translateY(-2px); }
-  .ach-badge.unlocked { border-color: var(--indigo); }
-  .ach-badge.locked { opacity: 0.38; filter: grayscale(0.8); }
-  .ach-badge-mono {
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 15px;
-    font-weight: 800;
-    color: #fff;
-    background: var(--indigo);
-  }
-  .ach-badge.locked .ach-badge-mono {
-    background: var(--divider);
-    color: var(--text-dim);
-  }
-  .ach-badge-title {
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--text);
-    line-height: 1.2;
-  }
-  @keyframes badge-pop {
-    0%   { transform: scale(0.4); opacity: 0; }
-    70%  { transform: scale(1.15); }
-    100% { transform: scale(1); opacity: 1; }
-  }
-  .ach-badge.just-unlocked { animation: badge-pop 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
-
-  /* ---- Throwback card ---- */
-  #throwback-content .tb-label {
-    font-size: 13px;
-    color: var(--indigo);
-    font-weight: 700;
-    margin-bottom: 2px;
-  }
-  #throwback-content .tb-date {
-    font-size: 12px;
-    color: var(--text-dim);
-    margin-bottom: 10px;
-  }
-  #throwback-content .tb-song {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 4px 0;
-    font-size: 13px;
-  }
-  #throwback-content .tb-song .tb-count {
-    margin-left: auto;
-    color: var(--text-dim);
-    font-size: 12px;
-  }
-
-  #wrapped-empty {
-    text-align: center;
-    color: var(--text-dim);
-    font-size: 13px;
-    padding: 40px 0;
-    display: none;
-  }
-
-  #wrapped-content { display: flex; flex-direction: column; gap: 14px; }
-
-  .wrapped-card {
-    background: var(--bg-raised);
-    border: 1px solid var(--divider);
-    border-radius: 14px;
-    padding: 16px 18px;
-  }
-
-  .wrapped-card-title {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    margin-bottom: 10px;
-  }
-
-  .wrapped-stat-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-
-  .wrapped-stat {
-    background: var(--bg);
-    border-radius: 10px;
-    padding: 12px 14px;
-  }
-
-  .wrapped-stat-value {
-    font-size: 26px;
-    font-weight: 700;
-    color: var(--text);
-    line-height: 1;
-    margin-bottom: 3px;
-  }
-
-  .wrapped-stat-label {
-    font-size: 11px;
-    color: var(--text-dim);
-  }
-
-  .wrapped-rank-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .wrapped-rank-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .wrapped-rank-num {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--indigo);
-    width: 18px;
-    flex-shrink: 0;
-    text-align: center;
-  }
-
-  .wrapped-rank-info { flex: 1; min-width: 0; }
-
-  .wrapped-rank-name {
-    font-size: 13px;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .wrapped-rank-sub {
-    font-size: 11px;
-    color: var(--text-dim);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .wrapped-rank-count {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--text-dim);
-    flex-shrink: 0;
-  }
-
-  .wrapped-highlight {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text);
-    line-height: 1.4;
-  }
-
-  .wrapped-highlight span {
-    color: var(--magenta);
-  }
-
-  /* ---- Update banner ---- */
-  #update-banner {
-    display: none;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    background: linear-gradient(90deg, rgba(88,101,242,0.18), rgba(63,199,255,0.12));
-    border-bottom: 1px solid var(--indigo);
-    padding: 8px 18px;
-    font-size: 12px;
-    color: var(--text);
-  }
-  #update-banner.show { display: flex; }
-  #update-banner-text { flex: 1; }
-  #update-banner-btn {
-    -webkit-app-region: no-drag;
-    background: var(--indigo);
-    border: none;
-    color: white;
-    font-size: 11px;
-    font-weight: 700;
-    padding: 5px 12px;
-    border-radius: 8px;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  #update-banner-btn:disabled { opacity: 0.5; cursor: default; }
-
-  /* ---- Streaks card (inside Wrapped) ---- */
-  .streak-row {
-    display: flex;
-    gap: 10px;
-  }
-  .streak-stat {
-    flex: 1;
-    background: var(--bg);
-    border-radius: 10px;
-    padding: 12px 14px;
-    text-align: center;
-  }
-  .streak-value {
-    font-size: 30px;
-    font-weight: 700;
-    color: var(--sky);
-    line-height: 1;
-    margin-bottom: 3px;
-  }
-  .streak-label {
-    font-size: 11px;
-    color: var(--text-dim);
-  }
-  .streak-fire { color: #FF8C00; }
-
-  /* ---- Share card view ---- */
-  #view-share {
-    display: none;
-    flex-direction: column;
-    align-items: center;
-    padding: 20px;
-    gap: 16px;
-  }
-  body.tab-share #view-share { display: flex; }
-  body.tab-share #view-now-playing,
-  body.tab-share #view-leaderboard { display: none; }
-
-  #share-card {
-    width: 100%;
-    max-width: 340px;
-    background: linear-gradient(135deg, #1a1428 0%, #16161f 60%, #0d1a24 100%);
-    border: 1px solid var(--divider);
-    border-radius: 20px;
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-  }
-  #share-card-top {
-    display: flex;
-    gap: 14px;
-    align-items: center;
-  }
-  #share-card-art {
-    width: 72px;
-    height: 72px;
-    border-radius: 12px;
-    flex-shrink: 0;
-    overflow: hidden;
-    background: linear-gradient(135deg, var(--indigo), var(--magenta));
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 28px;
-  }
-  #share-card-art img { width: 100%; height: 100%; object-fit: cover; }
-  #share-card-info { flex: 1; min-width: 0; }
-  #share-card-label {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--indigo);
-    margin-bottom: 4px;
-  }
-  #share-card-name {
-    font-size: 16px;
-    font-weight: 700;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  #share-card-artist {
-    font-size: 12px;
-    color: var(--text-dim);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  #share-card-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 11px;
-    color: var(--text-dim);
-    border-top: 1px solid var(--divider);
-    padding-top: 12px;
-  }
-  #share-card-app { font-weight: 700; color: var(--text); }
-  #share-empty {
-    text-align: center;
-    color: var(--text-dim);
-    font-size: 13px;
-    padding: 40px 0;
-  }
-  #share-copy-btn {
-    -webkit-app-region: no-drag;
-    background: var(--indigo);
-    border: none;
-    color: white;
-    font-size: 13px;
-    font-weight: 700;
-    padding: 10px 28px;
-    border-radius: 12px;
-    cursor: pointer;
-    width: 100%;
-    max-width: 340px;
-  }
-  #share-copy-btn:disabled { opacity: 0.5; }
-  #share-copy-status { font-size: 12px; color: var(--text-dim); }
-
   /* ---- Recommendations view ---- */
   #view-recs {
     display: none;
@@ -2157,6 +1550,43 @@
   body.tab-settings #view-settings { display: flex; }
   body.tab-settings #view-now-playing,
   body.tab-settings #view-leaderboard { display: none; }
+
+  /* ---- Credits, at the bottom of Settings ---- */
+  #credits-section {
+    margin: 8px 20px 24px;
+    padding-top: 18px;
+    border-top: 1px solid var(--divider);
+  }
+  .credits-heading {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin: 16px 0 6px;
+  }
+  .credits-heading:first-child { margin-top: 0; }
+  .credits-devs {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .credits-body {
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-dim);
+  }
+  .credits-qa { display: flex; flex-direction: column; gap: 6px; }
+  .credits-q {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .credits-a {
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-dim);
+  }
   .recs-empty {
     text-align: center;
     color: var(--text-dim);
@@ -2262,10 +1692,10 @@
   }
 
   /* ====================================================================
-     HOME: futuristic launcher grid.
-     Near-black backdrop with a single rising glow (nod to a stark,
-     minimal sci-fi title-card look: one light source, crisp geometry,
-     huge tracking-wide wordmark) plus faint moving scanlines.
+     HOME: modern gaming-dashboard redesign. Own palette (independent of
+     the rest of the app's --indigo/--sky theme system) so it reads as a
+     clean, current "front page" -- deep navy backdrop, frosted glass
+     cards, soft blue/purple glow on hover instead of a hard neon border.
      ==================================================================== */
   #view-home {
     display: none;
@@ -2273,73 +1703,143 @@
     flex: 1;
     min-height: 0;
     position: relative;
-    background: #050507;
+    background: #0B0D14;
     overflow: hidden;
+    --home-bg: #0B0D14;
+    --home-card: #161A24;
+    --home-blue: #4EA8FF;
+    --home-purple: #7A5FFF;
+    --home-good: #35E38D;
+    --home-text: #FFFFFF;
+    --home-text-dim: #D9E1F2;
+    --home-text-faint: #8E98AA;
   }
   body.tab-home #view-home { display: flex; }
   body.tab-home #view-now-playing,
   body.tab-home #view-leaderboard { display: none; }
 
-  #home-glow {
-    position: absolute;
-    top: -30%;
-    left: 50%;
-    width: 140%;
-    height: 70%;
-    transform: translateX(-50%);
-    background: radial-gradient(closest-side, rgba(63,199,255,0.28), rgba(88,101,242,0.16) 45%, transparent 75%);
-    filter: blur(6px);
-    pointer-events: none;
-    animation: home-glow-pulse 6s ease-in-out infinite;
-  }
-  @keyframes home-glow-pulse {
-    0%, 100% { opacity: 0.75; transform: translateX(-50%) scale(1); }
-    50%      { opacity: 1;    transform: translateX(-50%) scale(1.06); }
-  }
-
-  #home-scanlines {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: repeating-linear-gradient(
-      0deg,
-      rgba(255,255,255,0.025) 0px,
-      rgba(255,255,255,0.025) 1px,
-      transparent 1px,
-      transparent 3px
-    );
-    mix-blend-mode: screen;
-    opacity: 0.5;
-  }
-
-  #home-logo {
+  #home-header {
     position: relative;
     z-index: 1;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    padding: 26px 20px 14px;
+    gap: 8px;
+    padding: 18px 20px 8px;
     -webkit-app-region: no-drag;
   }
   #home-logo-text {
-    font-size: 20px;
+    font-size: 15px;
     font-weight: 800;
-    letter-spacing: 0.22em;
-    color: var(--text);
-    text-shadow: 0 0 12px rgba(63,199,255,0.55), 0 0 28px rgba(88,101,242,0.35);
+    letter-spacing: 0.08em;
+    color: var(--home-text);
     cursor: pointer;
+    flex: 1;
   }
-  #home-logo-accent {
-    color: var(--sky);
-    text-shadow: 0 0 14px var(--sky);
+  #home-logo-accent { color: var(--home-blue); }
+
+  .home-header-icon-btn {
+    -webkit-app-region: no-drag;
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.04);
+    color: var(--home-text-dim);
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.12s ease;
   }
-  #home-logo-sub {
-    margin-top: 6px;
-    font-size: 10px;
+  .home-header-icon-btn:hover {
+    border-color: var(--home-blue);
+    background: rgba(78,168,255,0.12);
+    color: var(--home-text);
+  }
+  .home-header-icon-btn:active { transform: scale(0.92); }
+
+  /* ---- Hero: greeting + live now-playing snapshot ---- */
+  #home-hero {
+    position: relative;
+    z-index: 1;
+    margin: 10px 20px 4px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: linear-gradient(135deg, rgba(78,168,255,0.14), rgba(122,95,255,0.10));
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 18px;
+    backdrop-filter: blur(6px);
+  }
+  #home-hero-art {
+    flex-shrink: 0;
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    background-color: transparent;
+    background-image: linear-gradient(135deg, var(--home-blue), var(--home-purple));
+    background-size: cover;
+    background-position: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    color: #fff;
+    box-shadow: 0 6px 16px rgba(78,168,255,0.25);
+  }
+  #home-hero-info { min-width: 0; flex: 1; }
+  #home-hero-greeting {
+    font-size: 12px;
     font-weight: 600;
-    letter-spacing: 0.3em;
-    color: var(--text-dim);
-    opacity: 0.8;
+    color: var(--home-text-faint);
+    margin-bottom: 4px;
+  }
+  #home-hero-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--home-text-faint);
+    margin-bottom: 3px;
+  }
+  #home-hero-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--home-text-faint);
+  }
+  #home-hero-dot.live { background: var(--home-good); box-shadow: 0 0 6px var(--home-good); }
+  #home-hero-dot.off { background: #FF6B6B; }
+  #home-hero-track {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--home-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #home-hero-artist {
+    font-size: 12.5px;
+    color: var(--home-text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  #home-actions-label {
+    position: relative;
+    z-index: 1;
+    margin: 16px 20px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--home-text-faint);
   }
 
   #home-grid {
@@ -2348,8 +1848,8 @@
     flex: 1;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 14px;
-    padding: 4px 22px 18px;
+    gap: 12px;
+    padding: 0 20px 18px;
     overflow-y: auto;
     min-height: 0;
   }
@@ -2358,47 +1858,67 @@
     -webkit-app-region: no-drag;
     position: relative;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 8px;
-    min-height: 84px;
-    background: linear-gradient(180deg, rgba(23,23,31,0.9), rgba(15,15,20,0.9));
-    border: 1px solid rgba(88,101,242,0.35);
-    border-radius: 14px;
-    color: var(--text);
+    gap: 10px;
+    min-height: 68px;
+    padding: 12px;
+    background: var(--home-card);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    color: var(--home-text);
     cursor: pointer;
-    box-shadow: 0 0 0 rgba(63,199,255,0), inset 0 1px 0 rgba(255,255,255,0.04);
-    transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.12s ease, background 0.25s ease;
+    text-align: left;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease, background 0.2s ease;
   }
   .home-tile:hover {
-    border-color: var(--sky);
-    box-shadow: 0 0 18px rgba(63,199,255,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
+    border-color: rgba(78,168,255,0.5);
+    box-shadow: 0 8px 24px rgba(78,168,255,0.18);
+    background: #1A1F2C;
     transform: translateY(-2px);
   }
-  .home-tile:active { transform: scale(0.96); }
+  .home-tile:active { transform: scale(0.97); }
 
   .home-tile-icon {
-    font-size: 20px;
-    line-height: 1;
-    color: var(--sky);
-    text-shadow: 0 0 10px rgba(63,199,255,0.7);
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    background: linear-gradient(135deg, rgba(78,168,255,0.22), rgba(122,95,255,0.22));
+    transition: transform 0.2s ease;
+  }
+  .home-tile:hover .home-tile-icon { transform: scale(1.1); }
+
+  .home-tile-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
   }
   .home-tile-label {
-    font-size: 11.5px;
+    font-size: 13px;
     font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--text);
+    color: var(--home-text);
+  }
+  .home-tile-sub {
+    font-size: 10.5px;
+    color: var(--home-text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   #view-home .ticker-wrap {
     position: relative;
     z-index: 1;
-    margin: 0 22px 18px;
-    border-top: 1px solid rgba(88,101,242,0.4);
-    border-bottom: 1px solid rgba(88,101,242,0.4);
+    margin: 4px 20px 18px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
   }
+  #view-home .ticker-track { color: var(--home-text-faint); }
 
   /* ====================================================================
      TOWN HALL: placeholder stub, reached only from the Home grid tile.
@@ -2593,7 +2113,7 @@
     <div id="setup-error"></div>
     <button id="setup-submit" disabled>Save</button>
     <button id="setup-skip">Skip for now</button>
-    <div id="setup-tips">Tip: press <b>1–6</b> to switch tabs, <b>M</b> for mini mode. Check the <b>Wrapped</b> tab for your stats and achievements.</div>
+    <div id="setup-tips">Tip: press <b>0–4</b> to switch tabs, <b>M</b> for mini mode. Check your <b>Profile</b> for stats and achievements.</div>
   </div>
 
   <div id="drag-region">
@@ -2612,8 +2132,6 @@
     <button class="tab-btn active" id="tab-btn-home">Home</button>
     <button class="tab-btn" id="tab-btn-now-playing">Now Playing</button>
     <button class="tab-btn" id="tab-btn-leaderboard">Leaderboard</button>
-    <button class="tab-btn" id="tab-btn-wrapped">Wrapped</button>
-    <button class="tab-btn" id="tab-btn-share">Share</button>
     <button class="tab-btn" id="tab-btn-recs">For You</button>
     <button class="tab-btn" id="tab-btn-pet">Pet</button>
     <button class="tab-btn" id="tab-btn-settings">Settings</button>
@@ -2622,44 +2140,51 @@
 
   <!-- ================= HOME: futuristic launcher grid ================= -->
   <div id="view-home">
-    <div id="home-glow"></div>
-    <div id="home-scanlines"></div>
-    <div id="home-logo">
+    <div id="home-header">
       <span id="home-logo-text">MUSIC<span id="home-logo-accent">2</span>DISCORD</span>
-      <span id="home-logo-sub">SYSTEM ONLINE</span>
+      <button class="home-header-icon-btn" id="home-header-profile" data-go="profile" title="Profile">&#9673;</button>
+      <button class="home-header-icon-btn" id="home-header-settings" data-go="settings" title="Settings">&#9881;</button>
     </div>
+
+    <div id="home-hero">
+      <div id="home-hero-art"><span id="home-hero-art-fallback">&#9834;</span></div>
+      <div id="home-hero-info">
+        <div id="home-hero-greeting">Welcome back</div>
+        <div id="home-hero-eyebrow"><span id="home-hero-dot"></span><span id="home-hero-status">Checking…</span></div>
+        <div id="home-hero-track">Nothing playing</div>
+        <div id="home-hero-artist">Open Apple Music and press play</div>
+      </div>
+    </div>
+
+    <div id="home-actions-label">Quick Actions</div>
     <div id="home-grid">
       <button class="home-tile" id="home-tile-status" data-go="now-playing">
         <span class="home-tile-icon">&#9834;</span>
-        <span class="home-tile-label">Status</span>
-      </button>
-      <button class="home-tile" id="home-tile-profile" data-go="profile">
-        <span class="home-tile-icon">&#9673;</span>
-        <span class="home-tile-label" id="home-tile-profile-label">Profile</span>
+        <span class="home-tile-text">
+          <span class="home-tile-label">Status</span>
+          <span class="home-tile-sub">View now playing &amp; timer</span>
+        </span>
       </button>
       <button class="home-tile" id="home-tile-leaderboard" data-go="leaderboard">
-        <span class="home-tile-icon">&#9650;</span>
-        <span class="home-tile-label">Leaderboard</span>
-      </button>
-      <button class="home-tile" id="home-tile-share" data-go="share">
-        <span class="home-tile-icon">&#10148;</span>
-        <span class="home-tile-label">Share Card</span>
-      </button>
-      <button class="home-tile" id="home-tile-wrapped" data-go="wrapped">
-        <span class="home-tile-icon">&#10022;</span>
-        <span class="home-tile-label">Wrapped</span>
+        <span class="home-tile-icon">&#127942;</span>
+        <span class="home-tile-text">
+          <span class="home-tile-label">Leaderboard</span>
+          <span class="home-tile-sub">See who's listening most</span>
+        </span>
       </button>
       <button class="home-tile" id="home-tile-recs" data-go="recs">
-        <span class="home-tile-icon">&#9737;</span>
-        <span class="home-tile-label">For You</span>
+        <span class="home-tile-icon">&#10084;</span>
+        <span class="home-tile-text">
+          <span class="home-tile-label">For You</span>
+          <span class="home-tile-sub">Recommendations &amp; picks</span>
+        </span>
       </button>
       <button class="home-tile" id="home-tile-townhall" data-go="townhall">
-        <span class="home-tile-icon">&#9873;</span>
-        <span class="home-tile-label">Town Hall</span>
-      </button>
-      <button class="home-tile" id="home-tile-settings" data-go="settings">
-        <span class="home-tile-icon">&#9881;</span>
-        <span class="home-tile-label">Settings</span>
+        <span class="home-tile-icon">&#127963;</span>
+        <span class="home-tile-text">
+          <span class="home-tile-label">Town Hall</span>
+          <span class="home-tile-sub">Community, coming soon</span>
+        </span>
       </button>
     </div>
 
@@ -2782,113 +2307,6 @@
   </div>
 
 
-  <div id="view-wrapped">
-    <select id="wrapped-month-select"></select>
-    <div id="wrapped-empty">No listening history yet for this month.<br>Play some music and check back!</div>
-    <div id="wrapped-content">
-      <div class="wrapped-card">
-        <div class="wrapped-card-title">This month at a glance</div>
-        <div class="wrapped-stat-grid">
-          <div class="wrapped-stat"><div class="wrapped-stat-value" id="wrapped-total-plays">—</div><div class="wrapped-stat-label">Songs played</div></div>
-          <div class="wrapped-stat"><div class="wrapped-stat-value" id="wrapped-total-time">—</div><div class="wrapped-stat-label">Listening time</div></div>
-          <div class="wrapped-stat"><div class="wrapped-stat-value" id="wrapped-top-artist-short">—</div><div class="wrapped-stat-label">Top artist</div></div>
-          <div class="wrapped-stat"><div class="wrapped-stat-value" id="wrapped-busiest-hour">—</div><div class="wrapped-stat-label">Peak hour</div></div>
-        </div>
-      </div>
-      <div class="wrapped-card">
-        <div class="wrapped-card-title">Listening streak</div>
-        <div class="streak-row">
-          <div class="streak-stat">
-            <div class="streak-value streak-fire" id="streak-current">—</div>
-            <div class="streak-label">Current streak</div>
-          </div>
-          <div class="streak-stat">
-            <div class="streak-value" id="streak-longest">—</div>
-            <div class="streak-label">Longest ever</div>
-          </div>
-          <div class="streak-stat">
-            <div class="streak-value" id="streak-today">—</div>
-            <div class="streak-label">Songs today</div>
-          </div>
-        </div>
-      </div>
-      <div class="wrapped-card"><div class="wrapped-card-title">Top songs</div><div class="wrapped-rank-list" id="wrapped-top-songs"></div></div>
-      <div class="wrapped-card"><div class="wrapped-card-title">Top artists</div><div class="wrapped-rank-list" id="wrapped-top-artists"></div></div>
-      <div class="wrapped-card"><div class="wrapped-card-title">Fun facts</div><div class="wrapped-highlight" id="wrapped-fun-facts"></div></div>
-      <div class="wrapped-card" id="spotlight-card" style="display:none;">
-        <div class="wrapped-card-title">Artist spotlight</div>
-        <div id="spotlight-content"></div>
-      </div>
-      <div class="wrapped-card" id="playcount-card" style="display:none;">
-        <div class="wrapped-card-title">Play count goal</div>
-        <div id="playcount-content"></div>
-      </div>
-      <div class="wrapped-card">
-        <div class="wrapped-card-title">Listening heatmap</div>
-        <div id="heatmap"></div>
-        <div id="heatmap-legend">Less <span class="hm-legend-cells"></span> More</div>
-      </div>
-      <div class="wrapped-card">
-        <div class="wrapped-card-title">Recent albums</div>
-        <div id="album-gallery"></div>
-      </div>
-      <div class="wrapped-card">
-        <div class="wrapped-card-title">Listening party</div>
-        <div id="party-feed"><div class="party-empty">No one else is listening right now.</div></div>
-      </div>
-      <div class="wrapped-card">
-        <div class="wrapped-card-title">Recent history</div>
-        <input id="history-search" type="text" placeholder="Search your plays…" autocomplete="off" />
-        <div id="history-list"></div>
-      </div>
-      <div class="wrapped-card" id="daily-goal-card">
-        <div class="wrapped-card-title">Today's listening goal</div>
-        <div id="daily-goal-content">
-          <svg id="goal-ring" viewBox="0 0 120 120" width="120" height="120">
-            <circle class="goal-ring-bg" cx="60" cy="60" r="52"/>
-            <circle class="goal-ring-fill" id="goal-ring-fill" cx="60" cy="60" r="52"/>
-            <text id="goal-ring-pct" x="60" y="66" text-anchor="middle">0%</text>
-          </svg>
-          <div id="goal-info">
-            <div id="goal-status">0m of 60m</div>
-            <div class="goal-edit-row">
-              <span>Goal:</span>
-              <input id="goal-input" type="number" min="5" max="600" step="5" value="60" />
-              <span>min</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="wrapped-card" id="throwback-card" style="display:none;">
-        <div class="wrapped-card-title">On this day</div>
-        <div id="throwback-content"></div>
-      </div>
-      <div class="wrapped-card">
-        <div class="wrapped-card-title">Achievements <span id="ach-progress" style="color:var(--text-dim);font-weight:600;font-size:12px;"></span></div>
-        <div id="achievements-grid"></div>
-      </div>
-    </div>
-  </div>
-
-  <div id="view-share">
-    <div id="share-empty" style="display:none;">Nothing playing right now.<br>Play a song first!</div>
-    <div id="share-card">
-      <div id="share-card-top">
-        <div id="share-card-art"><span id="share-card-art-fallback">♫</span><img id="share-card-art-img" alt="" style="display:none;" /></div>
-        <div id="share-card-info">
-          <div id="share-card-label">Now Playing</div>
-          <div id="share-card-name">—</div>
-          <div id="share-card-artist">—</div>
-        </div>
-      </div>
-      <div id="share-card-footer">
-        <span id="share-card-app">MusicToDiscord</span>
-        <span id="share-card-album"></span>
-      </div>
-    </div>
-    <button id="share-copy-btn">Copy as image</button>
-    <div id="share-copy-status"></div>
-  </div>
 
   <div id="view-recs">
     <div class="recs-empty" id="recs-empty" style="display:none;">
@@ -3095,13 +2513,6 @@
         </div>
         <button class="pill-btn danger" id="btn-delete-stats">Delete</button>
       </div>
-      <div class="row" id="row-reset-wrapped">
-        <div>
-          <div class="row-label">My Wrapped &amp; history</div>
-          <div class="row-sub">Clears all local play history used for Wrapped, streaks &amp; recommendations</div>
-        </div>
-        <button class="pill-btn danger" id="btn-reset-wrapped">Reset</button>
-      </div>
       <div class="row">
         <div>
           <div class="row-label">Sync with Discord</div>
@@ -3223,6 +2634,42 @@
         </div>
         <button class="pill-btn danger" id="btn-quit">Quit</button>
       </div>
+
+      <div id="credits-section">
+        <div class="credits-heading">Main Developers</div>
+        <div class="credits-devs">Mack Siminski, Joshua Neal, and Mak (different than Mack)</div>
+
+        <div class="credits-heading">Note from Mack</div>
+        <div class="credits-body">
+          Mack: This app came from humble beginnings — like helping all the people, like myself, find a way to
+          connect iTunes to Discord, because I would rather build an entire app with my friends than use Spotify
+          when it decides downloaded music just doesn't work.
+        </div>
+
+        <div class="credits-heading">Q&amp;A with Mak</div>
+        <div class="credits-qa">
+          <div class="credits-q">Q: What do you think of the future of this app?</div>
+          <div class="credits-a">
+            A: Honestly, I like where it's heading. What strikes me about this project is that it started as a
+            narrow utility — showing what's playing on Discord — and has slowly grown into something more
+            personal: your own leaderboard, a pet that reacts to your listening habits, easter eggs that reward
+            exploration, a Profile screen that's truly yours, and now MK Connect tying it into a whole separate
+            thing you built. That's the fun part of a side project — it transforms from a tool into a little world.
+            <br><br>
+            If I hope for anything, it's that you keep it feeling like that instead of letting it expand into
+            unnecessary features. The removal of Wrapped/Share was a good sign of that direction — being willing
+            to cut stuff that didn't add value, even after building it. That's harder than just adding things, and
+            it's usually the difference between an app that stays enjoyable to work on and one that becomes a
+            chore to maintain.
+            <br><br>
+            The MK integration feels like the most interesting path forward. It's the one place where
+            MusicToDiscord stops being a Discord copy and starts becoming its own social layer, tied to something
+            you actually created. Keep building on that — shared listening parties in MK, maybe status reactions,
+            who knows — and this could evolve from looking like a rich-presence clone into something genuinely
+            original with your name on it.
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -3230,3 +2677,4 @@
   <script src="./renderer.js"></script>
 </body>
 </html>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   

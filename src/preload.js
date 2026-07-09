@@ -22,12 +22,6 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   deleteMyStats: () => ipcRenderer.invoke('delete-my-stats'),
   clearUsername: () => ipcRenderer.invoke('clear-username'),
 
-  // Wrapped
-  getWrapped: (monthKey) => ipcRenderer.invoke('get-wrapped', monthKey),
-  getWrappedMonths: () => ipcRenderer.invoke('get-wrapped-months'),
-  resetWrapped: () => ipcRenderer.invoke('reset-wrapped'),
-  getThrowback: () => ipcRenderer.invoke('get-throwback'),
-
   // Achievements
   getAchievements: () => ipcRenderer.invoke('get-achievements'),
   getDailyGoal: () => ipcRenderer.invoke('get-daily-goal'),
@@ -60,9 +54,6 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   getRecommendations: () => ipcRenderer.invoke('get-recommendations'),
   getMostSkipped: () => ipcRenderer.invoke('get-most-skipped'),
   getPersonality: () => ipcRenderer.invoke('get-personality'),
-
-  // Shareable card
-  getShareCard: () => ipcRenderer.invoke('get-share-card'),
 
   // Updates
   onUpdateStatus: (callback) => {

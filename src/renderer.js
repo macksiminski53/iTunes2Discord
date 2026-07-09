@@ -18,6 +18,15 @@ const elBtnQuit = document.getElementById('btn-quit');
 const elBtnMin = document.getElementById('btn-min');
 const elBtnClose = document.getElementById('btn-close');
 
+// Home hero -- a lightweight mirror of the Now Playing header, so the front
+// page shows what's playing at a glance without needing to switch tabs.
+const elHomeHeroDot = document.getElementById('home-hero-dot');
+const elHomeHeroStatus = document.getElementById('home-hero-status');
+const elHomeHeroTrack = document.getElementById('home-hero-track');
+const elHomeHeroArtist = document.getElementById('home-hero-artist');
+const elHomeHeroArt = document.getElementById('home-hero-art');
+const elHomeHeroArtFallback = document.getElementById('home-hero-art-fallback');
+
 // ---- Animation helpers ----
 // Re-trigger a one-shot CSS animation by removing the class, forcing a
 // reflow, then re-adding it. Without the reflow the browser coalesces the
@@ -151,8 +160,6 @@ function resetTheme() {
 const elTabBtnHome = document.getElementById('tab-btn-home');
 const elTabBtnNowPlaying = document.getElementById('tab-btn-now-playing');
 const elTabBtnLeaderboard = document.getElementById('tab-btn-leaderboard');
-const elTabBtnWrapped = document.getElementById('tab-btn-wrapped');
-const elTabBtnShare = document.getElementById('tab-btn-share');
 const elTabBtnRecs = document.getElementById('tab-btn-recs');
 const elTabBtnSettings = document.getElementById('tab-btn-settings');
 const elTabBtnDev = document.getElementById('tab-btn-dev');
@@ -194,7 +201,6 @@ const elUsernameSub = document.getElementById('username-sub');
 const elBtnChangeUsername = document.getElementById('btn-change-username');
 const elBtnRemoveUsername = document.getElementById('btn-remove-username');
 const elBtnDeleteStats = document.getElementById('btn-delete-stats');
-const elBtnResetWrapped = document.getElementById('btn-reset-wrapped');
 
 let currentUsername = null;
 
@@ -276,6 +282,8 @@ function render(state) {
     elStatusDot.className = 'off';
     elStatusText.textContent = 'Not connected to Discord';
   }
+  if (elHomeHeroDot) elHomeHeroDot.className = state.connected ? 'live' : 'off';
+  if (elHomeHeroStatus) elHomeHeroStatus.textContent = state.connected ? 'Connected' : 'Not connected';
 
   // Track info
   const track = state.track;
@@ -285,6 +293,8 @@ function render(state) {
     document.body.classList.toggle('is-playing', track.state === 'playing');
     elTrackName.textContent = track.name || 'Unknown track';
     elTrackArtist.textContent = track.artist || 'Unknown artist';
+    if (elHomeHeroTrack) elHomeHeroTrack.textContent = track.name || 'Unknown track';
+    if (elHomeHeroArtist) elHomeHeroArtist.textContent = track.artist || 'Unknown artist';
 
     // Fire cross-fade animations only when the song genuinely changes, so the
     // name/artist/art don't re-animate on every per-second position tick.
@@ -310,11 +320,15 @@ function render(state) {
       // Dynamic theme: pull the dominant color from the new cover and retint
       // the UI. Only on song change so we don't re-extract every tick.
       if (songChanged) applyThemeFromArtwork(artSrc);
+      if (elHomeHeroArt) elHomeHeroArt.style.backgroundImage = `url("${artSrc}")`;
+      if (elHomeHeroArtFallback) elHomeHeroArtFallback.style.display = 'none';
     } else {
       elArtImg.style.display = 'none';
       elArtFallback.style.display = 'flex';
       if (songChanged) replayAnimation(elArtFallback, 'art-animate');
       if (songChanged) resetTheme();
+      if (elHomeHeroArt) elHomeHeroArt.style.backgroundImage = '';
+      if (elHomeHeroArtFallback) elHomeHeroArtFallback.style.display = 'flex';
     }
   } else {
     liveTrack = null;
@@ -323,6 +337,10 @@ function render(state) {
     resetTheme();
     elTrackName.textContent = 'Nothing playing';
     elTrackArtist.textContent = 'Open Apple Music and press play';
+    if (elHomeHeroTrack) elHomeHeroTrack.textContent = 'Nothing playing';
+    if (elHomeHeroArtist) elHomeHeroArtist.textContent = 'Open Apple Music and press play';
+    if (elHomeHeroArt) elHomeHeroArt.style.backgroundImage = '';
+    if (elHomeHeroArtFallback) elHomeHeroArtFallback.style.display = 'flex';
     elGrooveFill.style.width = '0%';
     elGrooveNeedle.style.left = '0%';
     elTimeElapsed.textContent = '0:00';
@@ -528,8 +546,6 @@ function showTab(tab) {
   document.body.classList.toggle('tab-now-playing', tab === 'now-playing');
   document.body.classList.toggle('tab-leaderboard', tab === 'leaderboard');
   document.body.classList.toggle('tab-dev', tab === 'dev');
-  document.body.classList.toggle('tab-wrapped', tab === 'wrapped');
-  document.body.classList.toggle('tab-share', tab === 'share');
   document.body.classList.toggle('tab-recs', tab === 'recs');
   document.body.classList.toggle('tab-pet', tab === 'pet');
   document.body.classList.toggle('tab-settings', tab === 'settings');
@@ -539,8 +555,6 @@ function showTab(tab) {
   elTabBtnNowPlaying.classList.toggle('active', tab === 'now-playing');
   elTabBtnLeaderboard.classList.toggle('active', tab === 'leaderboard');
   elTabBtnDev.classList.toggle('active', tab === 'dev');
-  elTabBtnWrapped.classList.toggle('active', tab === 'wrapped');
-  elTabBtnShare.classList.toggle('active', tab === 'share');
   elTabBtnRecs.classList.toggle('active', tab === 'recs');
   if (elTabBtnPet) elTabBtnPet.classList.toggle('active', tab === 'pet');
   elTabBtnSettings.classList.toggle('active', tab === 'settings');
@@ -568,8 +582,6 @@ function showTab(tab) {
     devRefreshTimer = null;
   }
 
-  if (tab === 'wrapped') loadWrapped();
-  if (tab === 'share') loadShareCard();
   if (tab === 'recs') loadRecommendations();
   if (tab === 'pet') { loadPet(); if (!petRefreshTimer) petRefreshTimer = setInterval(loadPet, 15000); }
   else if (petRefreshTimer) { clearInterval(petRefreshTimer); petRefreshTimer = null; }
@@ -579,14 +591,15 @@ const elTabBtnPet = document.getElementById('tab-btn-pet');
 let petRefreshTimer = null;
 
 function updateHomeProfileLabel() {
-  const el = document.getElementById('home-tile-profile-label');
-  if (el) el.textContent = currentUsername || 'Profile';
+  const el = document.getElementById('home-header-profile');
+  if (el) el.title = currentUsername ? `Profile (${currentUsername})` : 'Profile';
 }
 
 if (elTabBtnHome) elTabBtnHome.addEventListener('click', () => showTab('home'));
 
-// Home grid tiles + Town Hall stub each just route into the existing tabs.
-document.querySelectorAll('.home-tile[data-go]').forEach((btn) => {
+// Home grid tiles, header icon buttons, and the Town Hall stub each just
+// route into the existing tabs.
+document.querySelectorAll('[data-go]').forEach((btn) => {
   btn.addEventListener('click', () => showTab(btn.dataset.go));
 });
 const elTownhallBack = document.getElementById('townhall-back');
@@ -625,8 +638,6 @@ function loadProfile() {
 elTabBtnNowPlaying.addEventListener('click', () => showTab('now-playing'));
 elTabBtnLeaderboard.addEventListener('click', () => showTab('leaderboard'));
 elTabBtnDev.addEventListener('click', () => showTab('dev'));
-elTabBtnWrapped.addEventListener('click', () => showTab('wrapped'));
-elTabBtnShare.addEventListener('click', () => showTab('share'));
 elTabBtnRecs.addEventListener('click', () => showTab('recs'));
 if (elTabBtnPet) elTabBtnPet.addEventListener('click', () => showTab('pet'));
 elTabBtnSettings.addEventListener('click', () => showTab('settings'));
@@ -965,25 +976,6 @@ elBtnDeleteStats.addEventListener('click', () => {
   });
 });
 
-elBtnResetWrapped.addEventListener('click', () => {
-  const confirmed = window.confirm(
-    "Clear all your play history? This wipes your Wrapped, streaks, and recommendations on this device and can't be undone. Your leaderboard name and stats are not affected."
-  );
-  if (!confirmed) return;
-  elBtnResetWrapped.disabled = true;
-  elBtnResetWrapped.textContent = 'Resetting…';
-  window.musicToDiscord.resetWrapped().then((ok) => {
-    elBtnResetWrapped.disabled = false;
-    elBtnResetWrapped.textContent = 'Reset';
-    if (ok) {
-      // Refresh the Wrapped view if it's currently open so it reflects the
-      // now-empty history immediately rather than showing stale data.
-      if (typeof loadWrapped === 'function') {
-        try { loadWrapped(); } catch (e) {}
-      }
-    }
-  });
-});
 
 // ---- Wire up controls ----
 elToggleSync.addEventListener('click', () => window.musicToDiscord.togglePause());
@@ -1044,128 +1036,6 @@ window.musicToDiscord.onLeaderboardChanged(() => {
   }
 });
 
-// ---- Wrapped ----
-function formatListeningTimeWrapped(seconds) {
-  const s = Math.max(0, Math.round(seconds || 0));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m`;
-  return `${s}s`;
-}
-
-function formatHour(hour) {
-  if (hour === 0) return '12am';
-  if (hour < 12) return `${hour}am`;
-  if (hour === 12) return '12pm';
-  return `${hour - 12}pm`;
-}
-
-function formatMonthLabel(monthKey) {
-  const [year, mon] = monthKey.split('-').map(Number);
-  return new Date(year, mon - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-}
-
-async function loadWrapped() {
-  const select = document.getElementById('wrapped-month-select');
-  const emptyEl = document.getElementById('wrapped-empty');
-  const contentEl = document.getElementById('wrapped-content');
-
-  // Load available months into the dropdown
-  const months = await window.musicToDiscord.getWrappedMonths();
-  if (!months || months.length === 0) {
-    select.style.display = 'none';
-    emptyEl.style.display = 'block';
-    contentEl.style.display = 'none';
-    return;
-  }
-
-  select.style.display = '';
-  if (select.options.length === 0 || select.dataset.loaded !== 'true') {
-    select.innerHTML = months
-      .map((m) => `<option value="${m}">${formatMonthLabel(m)}</option>`)
-      .join('');
-    select.dataset.loaded = 'true';
-    select.onchange = () => renderWrapped(select.value);
-  }
-
-  renderWrapped(select.value || months[0]);
-  loadStreaks();
-  loadAchievements();
-  loadThrowback();
-  loadDailyGoal();
-  loadPartyFeed();
-  loadHistory();
-  loadHeatmap();
-  loadAlbumGallery();
-  loadSpotlight();
-  loadPlayCountGoal();
-  loadMostSkipped();
-  loadPersonality();
-}
-
-async function renderWrapped(monthKey) {
-  const emptyEl = document.getElementById('wrapped-empty');
-  const contentEl = document.getElementById('wrapped-content');
-
-  const data = await window.musicToDiscord.getWrapped(monthKey);
-
-  if (!data) {
-    emptyEl.style.display = 'block';
-    contentEl.style.display = 'none';
-    return;
-  }
-
-  emptyEl.style.display = 'none';
-  contentEl.style.display = 'flex';
-
-  // Stats — count up the two numeric ones for a satisfying roll-in
-  countUp(document.getElementById('wrapped-total-plays'), data.totalPlays);
-  document.getElementById('wrapped-total-time').textContent = formatListeningTimeWrapped(data.totalSeconds);
-  document.getElementById('wrapped-top-artist-short').textContent =
-    data.topArtists[0] ? data.topArtists[0].artist.split(' ')[0] : '—';
-  document.getElementById('wrapped-busiest-hour').textContent = formatHour(data.busiestHour);
-
-  // Top songs
-  const songsEl = document.getElementById('wrapped-top-songs');
-  songsEl.innerHTML = data.topSongs.map((s, i) => `
-    <div class="wrapped-rank-row row-animate" style="animation-delay:${Math.min(i * 0.06, 0.5)}s">
-      <div class="wrapped-rank-num">${i + 1}</div>
-      <div class="wrapped-rank-info">
-        <div class="wrapped-rank-name">${esc(s.name)}</div>
-        <div class="wrapped-rank-sub">${esc(s.artist)}</div>
-      </div>
-      <div class="wrapped-rank-count">${s.count}×</div>
-    </div>
-  `).join('');
-
-  // Top artists
-  const artistsEl = document.getElementById('wrapped-top-artists');
-  artistsEl.innerHTML = data.topArtists.map((a, i) => `
-    <div class="wrapped-rank-row row-animate" style="animation-delay:${Math.min(i * 0.06, 0.5)}s">
-      <div class="wrapped-rank-num">${i + 1}</div>
-      <div class="wrapped-rank-info">
-        <div class="wrapped-rank-name">${esc(a.artist || 'Unknown')}</div>
-      </div>
-      <div class="wrapped-rank-count">${a.count}×</div>
-    </div>
-  `).join('');
-
-  // Fun facts
-  const facts = [];
-  if (data.topSongs[0]) {
-    facts.push(`You played <span>${esc(data.topSongs[0].name)}</span> ${data.topSongs[0].count} times — your most-played song.`);
-  }
-  if (data.mostActiveDayLabel) {
-    facts.push(`Your most active day was <span>${data.mostActiveDayLabel}</span> with ${data.mostActiveDayCount} songs.`);
-  }
-  facts.push(`You listened most at <span>${formatHour(data.busiestHour)}</span>.`);
-
-  document.getElementById('wrapped-fun-facts').innerHTML = facts
-    .map((f) => `<div style="margin-bottom:10px">${f}</div>`)
-    .join('');
-}
-
 function esc(str) {
   if (!str) return '';
   const d = document.createElement('div');
@@ -1196,425 +1066,10 @@ window.musicToDiscord.onUpdateStatus((info) => {
   }
 });
 
-// ---- Streaks (loaded as part of Wrapped) ----
-async function loadStreaks() {
-  const data = await window.musicToDiscord.getStreaks();
-  if (!data) return;
-  // A snowflake marks when the one-day "streak freeze" grace day is keeping
-  // the current streak alive.
-  document.getElementById('streak-current').textContent =
-    data.current > 0 ? `${data.current}d${data.freezeUsed ? ' \u2744' : ''}` : '0';
-  document.getElementById('streak-longest').textContent =
-    data.longest > 0 ? `${data.longest}d` : '0';
-  document.getElementById('streak-today').textContent = data.todayCount;
-}
-
-// ---- Daily listening goal (loaded as part of Wrapped) ----
-let goalInputWired = false;
-let goalCelebrated = false;
-
-// ---- Listening heatmap (loaded as part of Wrapped) ----
-async function loadHeatmap() {
-  const el = document.getElementById('heatmap');
-  if (!el) return;
-  const data = await window.musicToDiscord.getHeatmap();
-  if (!data) return;
-  const { grid, max } = data;
-  // Flatten to 7 rows x 24 cols; color intensity by count/max.
-  let html = '';
-  for (let day = 0; day < 7; day++) {
-    for (let hour = 0; hour < 24; hour++) {
-      const count = grid[day][hour];
-      const intensity = max > 0 ? count / max : 0;
-      const bg = intensity === 0
-        ? 'var(--divider)'
-        : `color-mix(in srgb, var(--indigo) ${Math.round(intensity * 100)}%, var(--divider))`;
-      html += `<div class="hm-cell" style="background:${bg}" title="${count} plays"></div>`;
-    }
-  }
-  el.innerHTML = html;
-  // Legend cells
-  const legend = document.querySelector('.hm-legend-cells');
-  if (legend) {
-    legend.innerHTML = [0, 0.25, 0.5, 0.75, 1].map((i) =>
-      `<span style="background:${i === 0 ? 'var(--divider)' : `color-mix(in srgb, var(--indigo) ${i * 100}%, var(--divider))`}"></span>`
-    ).join('');
-  }
-}
-
-// ---- Album gallery (loaded as part of Wrapped) ----
-async function loadAlbumGallery() {
-  const el = document.getElementById('album-gallery');
-  if (!el) return;
-  const albums = await window.musicToDiscord.getRecentAlbums();
-  if (!albums || albums.length === 0) {
-    el.innerHTML = '<div class="history-empty">No albums yet.</div>';
-    return;
-  }
-  // Render cells with fallback, then fetch art lazily.
-  el.innerHTML = albums.map((a, i) =>
-    `<div class="album-cell" id="album-cell-${i}" title="${esc(a.name)} — ${esc(a.artist)}"><div class="album-fallback">\u266b</div></div>`
-  ).join('');
-  // Fetch artwork for each via the same iTunes lookup used elsewhere. We reuse
-  // a client-side fetch to iTunes search directly (no bundled key needed).
-  albums.forEach(async (a, i) => {
-    const cell = document.getElementById(`album-cell-${i}`);
-    if (!cell) return;
-    try {
-      const q = encodeURIComponent(`${a.name} ${a.artist}`);
-      const res = await fetch(`https://itunes.apple.com/search?term=${q}&media=music&limit=1&entity=song`);
-      const json = await res.json();
-      const url = json.results && json.results[0] && json.results[0].artworkUrl100
-        ? json.results[0].artworkUrl100.replace('100x100bb', '200x200bb')
-        : null;
-      if (url) {
-        const img = new Image();
-        img.onload = () => { cell.innerHTML = ''; cell.appendChild(img); };
-        img.src = url;
-      }
-    } catch (e) { /* keep fallback */ }
-  });
-}
-
-// ---- Artist spotlight (loaded as part of Wrapped) ----
-async function loadSpotlight() {
-  const card = document.getElementById('spotlight-card');
-  const content = document.getElementById('spotlight-content');
-  if (!card) return;
-  const data = await window.musicToDiscord.getArtistSpotlight();
-  if (!data) { card.style.display = 'none'; return; }
-  card.style.display = '';
-  content.innerHTML = `
-    <div class="spot-artist">${esc(data.artist)}</div>
-    <div class="spot-meta">${data.count} play${data.count === 1 ? '' : 's'} this week</div>
-    ${data.topSong ? `<div class="spot-song">Most played: ${esc(data.topSong)}</div>` : ''}
-  `;
-}
-
-// ---- Play count goal (loaded as part of Wrapped) ----
-async function loadPlayCountGoal() {
-  const card = document.getElementById('playcount-card');
-  const content = document.getElementById('playcount-content');
-  if (!card) return;
-  const data = await window.musicToDiscord.getPlayCountGoal();
-  if (!data || data.count === 0) { card.style.display = 'none'; return; }
-  card.style.display = '';
-  let goalLine;
-  if (data.count >= data.recordCount) {
-    goalLine = 'This is your most-played song!';
-  } else {
-    goalLine = `${data.toRecord} more play${data.toRecord === 1 ? '' : 's'} to beat your record (${data.recordCount}).`;
-  }
-  content.innerHTML = `
-    <div class="pc-song">${esc(data.song)}</div>
-    <div class="pc-count">Played ${data.count} time${data.count === 1 ? '' : 's'}</div>
-    <div class="pc-goal">${goalLine}</div>
-  `;
-}
-
-// ---- Listening party feed (loaded as part of Wrapped) ----
-async function loadPartyFeed() {
-  const feed = document.getElementById('party-feed');
-  if (!feed) return;
-  try {
-    const data = await window.musicToDiscord.getListeningParty();
-    if (!data || data.total === 0) {
-      feed.innerHTML = '<div class="party-empty">No one else is listening right now.</div>';
-      return;
-    }
-    // Same-song listeners first
-    const sorted = [...data.listeners].sort((a, b) => (b.sameSong ? 1 : 0) - (a.sameSong ? 1 : 0));
-    feed.innerHTML = sorted.map((l) => `
-      <div class="party-feed-row ${l.sameSong ? 'same-song' : ''}">
-        <span class="party-feed-dot"></span>
-        <div class="party-feed-info">
-          <div class="party-feed-user">${esc(l.username)}${l.sameSong ? ' — same song!' : ''}</div>
-          <div class="party-feed-song">${esc(l.song)}${l.artist ? ' — ' + esc(l.artist) : ''}</div>
-        </div>
-      </div>
-    `).join('');
-  } catch (e) {
-    feed.innerHTML = '<div class="party-empty">Listening party unavailable.</div>';
-  }
-}
-
-// ---- Recent history timeline + search (loaded as part of Wrapped) ----
-let historySearchWired = false;
-function formatHistoryTime(ts) {
-  const d = new Date(ts);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
-async function loadHistory(query) {
-  const list = document.getElementById('history-list');
-  if (!list) return;
-  const entries = await window.musicToDiscord.getHistory(query || '');
-  if (!entries || entries.length === 0) {
-    list.innerHTML = '<div class="history-empty">No plays found.</div>';
-  } else {
-    list.innerHTML = entries.map((e) => `
-      <div class="history-row">
-        <span class="history-name">${esc(e.name || 'Unknown')}</span>
-        <span class="history-artist">${esc(e.artist || '')}</span>
-        <span class="history-time">${formatHistoryTime(e.timestamp)}</span>
-      </div>
-    `).join('');
-  }
-  // Wire the search box once.
-  if (!historySearchWired) {
-    historySearchWired = true;
-    const search = document.getElementById('history-search');
-    let debounce = null;
-    search.addEventListener('input', () => {
-      clearTimeout(debounce);
-      debounce = setTimeout(() => loadHistory(search.value), 200);
-    });
-  }
-}
-async function loadDailyGoal() {
-  const data = await window.musicToDiscord.getDailyGoal();
-  if (!data) return;
-  const { todaySeconds, goalMinutes } = data;
-  const goalSeconds = goalMinutes * 60;
-  const pct = goalSeconds > 0 ? Math.min(todaySeconds / goalSeconds, 1) : 0;
-
-  const ring = document.getElementById('goal-ring-fill');
-  const circumference = 326.7;
-  ring.style.strokeDashoffset = String(circumference * (1 - pct));
-
-  document.getElementById('goal-ring-pct').textContent = `${Math.round(pct * 100)}%`;
-
-  const todayMin = Math.round(todaySeconds / 60);
-  const statusEl = document.getElementById('goal-status');
-  if (pct >= 1) {
-    statusEl.textContent = `Goal reached! ${todayMin}m today`;
-    // Celebrate the first time we observe the goal hit in this session.
-    if (!goalCelebrated) {
-      goalCelebrated = true;
-      celebrate();
-    }
-  } else {
-    statusEl.textContent = `${todayMin}m of ${goalMinutes}m`;
-  }
-
-  const input = document.getElementById('goal-input');
-  input.value = goalMinutes;
-  // Wire the input once: saving a new goal persists it and re-renders the ring.
-  if (!goalInputWired) {
-    goalInputWired = true;
-    input.addEventListener('change', () => {
-      let val = parseInt(input.value, 10);
-      if (isNaN(val) || val < 5) val = 5;
-      if (val > 600) val = 600;
-      input.value = val;
-      window.musicToDiscord.setSetting('dailyGoalMinutes', val);
-      loadDailyGoal();
-    });
-  }
-}
-
-// ---- Achievements (loaded as part of Wrapped) ----
-// Remembers which badges were unlocked last render so newly-earned ones can
-// pop in with an animation rather than just appearing.
-let knownUnlockedBadges = new Set();
-
-async function loadAchievements() {
-  const data = await window.musicToDiscord.getAchievements();
-  if (!data) return;
-  const grid = document.getElementById('achievements-grid');
-  const progress = document.getElementById('ach-progress');
-  progress.textContent = `${data.unlockedCount}/${data.total}`;
-
-  grid.innerHTML = data.badges.map((b) => {
-    const isNew = b.unlocked && !knownUnlockedBadges.has(b.id);
-    const cls = `ach-badge ${b.unlocked ? 'unlocked' : 'locked'}${isNew ? ' just-unlocked' : ''}`;
-    // title attribute gives a native tooltip with the description
-    const tip = b.unlocked ? `${b.title} — ${b.desc}` : `Locked: ${b.desc}`;
-    // Monogram from the badge title (first letter), shown in a styled circle
-    // instead of an emoji for a cleaner, more professional look. Locked badges
-    // show a dash.
-    const mono = b.unlocked ? (b.title.trim()[0] || '?').toUpperCase() : '–';
-    return `
-      <div class="${cls}" title="${esc(tip)}">
-        <div class="ach-badge-mono">${esc(mono)}</div>
-        <div class="ach-badge-title">${esc(b.title)}</div>
-      </div>
-    `;
-  }).join('');
-
-  knownUnlockedBadges = new Set(data.badges.filter((b) => b.unlocked).map((b) => b.id));
-}
-
-// ---- "On this day" throwback (loaded as part of Wrapped) ----
-async function loadThrowback() {
-  const card = document.getElementById('throwback-card');
-  const content = document.getElementById('throwback-content');
-  const data = await window.musicToDiscord.getThrowback();
-  if (!data) {
-    card.style.display = 'none';
-    return;
-  }
-  card.style.display = '';
-  const songs = data.topSongs.map((s) => `
-    <div class="tb-song">
-      <span>${esc(s.name)}</span>
-      <span style="color:var(--text-dim)">${esc(s.artist)}</span>
-      <span class="tb-count">${s.count}×</span>
-    </div>
-  `).join('');
-  content.innerHTML = `
-    <div class="tb-label">${esc(data.label)}</div>
-    <div class="tb-date">${esc(data.dateStr)} · ${data.totalPlays} song${data.totalPlays === 1 ? '' : 's'} played</div>
-    ${songs}
-  `;
-}
-
-async function loadMostSkipped() {
-  let card = document.getElementById('most-skipped-card');
-  if (!card) {
-    card = document.createElement('div');
-    card.id = 'most-skipped-card';
-    card.className = 'wrapped-card';
-    const wrapped = document.getElementById('wrapped-content');
-    if (wrapped) wrapped.appendChild(card);
-  }
-  const data = await window.musicToDiscord.getMostSkipped();
-  if (!data || data.length === 0) { card.style.display = 'none'; return; }
-  card.style.display = '';
-  card.innerHTML = `
-    <div class="wrapped-card-title">⏭ Most Skipped</div>
-    <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">
-      ${data.slice(0, 5).map((s, i) => `
-        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-          <div style="flex:1;min-width:0;">
-            <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(s.name)}</div>
-            <div style="color:var(--text-dim);font-size:11px;">${esc(s.artist)}</div>
-          </div>
-          <div style="margin-left:12px;text-align:right;flex-shrink:0;">
-            <div style="font-weight:700;color:var(--accent);">${s.skips}×</div>
-            <div style="font-size:10px;color:var(--text-dim);">${Math.round(s.skipRate * 100)}% skip rate</div>
-          </div>
-        </div>
-      `).join('')}
-    </div>
-  `;
-}
-
-async function loadPersonality() {
-  let card = document.getElementById('personality-card');
-  if (!card) {
-    card = document.createElement('div');
-    card.id = 'personality-card';
-    card.className = 'wrapped-card';
-    const wrapped = document.getElementById('wrapped-content');
-    if (wrapped) wrapped.appendChild(card);
-  }
-  const data = await window.musicToDiscord.getPersonality();
-  if (!data) { card.style.display = 'none'; return; }
-  card.style.display = '';
-  card.innerHTML = `
-    <div class="wrapped-card-title">🧠 Your Listener Personality</div>
-    <div style="text-align:center;margin:16px 0 8px;">
-      <div style="font-size:40px;margin-bottom:8px;">${data.emoji}</div>
-      <div style="font-size:18px;font-weight:800;color:var(--accent);">${esc(data.type)}</div>
-    </div>
-    <div style="font-size:13px;line-height:1.6;color:var(--text-dim);text-align:center;">${esc(data.desc)}</div>
-    <div style="display:flex;justify-content:space-around;margin-top:14px;font-size:12px;">
-      <div style="text-align:center;">
-        <div style="font-weight:700;font-size:16px;">${data.skipRate}%</div>
-        <div style="color:var(--text-dim);">skip rate</div>
-      </div>
-      <div style="text-align:center;">
-        <div style="font-weight:700;font-size:16px;">${data.uniqueArtists}</div>
-        <div style="color:var(--text-dim);">artists</div>
-      </div>
-      <div style="text-align:center;">
-        <div style="font-weight:700;font-size:16px;">${data.totalPlays}</div>
-        <div style="color:var(--text-dim);">plays</div>
-      </div>
-    </div>
-  `;
-}
-
-// Refresh achievements live when the main process unlocks one mid-session,
-// so the badge pops in even if the Wrapped tab is already open.
+// Refresh achievements live when the main process unlocks one mid-session
+// (used by the Profile screen's stats).
 window.musicToDiscord.onAchievementsChanged(() => {
-  // A new badge unlocked mid-session -- celebrate, and refresh the grid if
-  // the Wrapped tab is open.
   celebrate();
-  if (document.body.classList.contains('tab-wrapped')) {
-    loadAchievements();
-  }
-});
-
-// ---- Share card ----
-async function loadShareCard() {
-  const data = await window.musicToDiscord.getShareCard();
-  const emptyEl = document.getElementById('share-empty');
-  const cardEl = document.getElementById('share-card');
-  const copyBtn = document.getElementById('share-copy-btn');
-
-  if (!data) {
-    emptyEl.style.display = 'block';
-    cardEl.style.display = 'none';
-    copyBtn.style.display = 'none';
-    return;
-  }
-
-  emptyEl.style.display = 'none';
-  cardEl.style.display = 'flex';
-  copyBtn.style.display = '';
-
-  document.getElementById('share-card-label').textContent =
-    data.state === 'paused' ? 'Paused' : 'Now Playing';
-  document.getElementById('share-card-name').textContent = data.name;
-  document.getElementById('share-card-artist').textContent = data.artist;
-  document.getElementById('share-card-album').textContent = data.album || '';
-
-  const artImg = document.getElementById('share-card-art-img');
-  const artFallback = document.getElementById('share-card-art-fallback');
-  if (data.artworkDataUrl) {
-    artImg.src = data.artworkDataUrl;
-    artImg.style.display = 'block';
-    artFallback.style.display = 'none';
-  } else {
-    artImg.style.display = 'none';
-    artFallback.style.display = '';
-  }
-}
-
-document.getElementById('share-copy-btn').addEventListener('click', async () => {
-  const statusEl = document.getElementById('share-copy-status');
-  const btn = document.getElementById('share-copy-btn');
-  const cardEl = document.getElementById('share-card');
-
-  btn.disabled = true;
-  btn.textContent = 'Copying…';
-
-  try {
-    // Use the Clipboard API to write text — a clean "Now Playing" summary
-    // since image clipboard from HTML requires canvas which isn't worth
-    // the complexity here.
-    const name = document.getElementById('share-card-name').textContent;
-    const artist = document.getElementById('share-card-artist').textContent;
-    const album = document.getElementById('share-card-album').textContent;
-    const albumPart = album ? ` (${album})` : '';
-    const text = `Listening to: ${name} by ${artist}${albumPart} — via MusicToDiscord`;
-    await navigator.clipboard.writeText(text);
-    btn.textContent = 'Copied!';
-    statusEl.textContent = 'Paste anywhere to share';
-  } catch (e) {
-    btn.textContent = 'Failed';
-    statusEl.textContent = 'Could not access clipboard';
-  }
-
-  setTimeout(() => {
-    btn.textContent = 'Copy as text';
-    btn.disabled = false;
-    statusEl.textContent = '';
-  }, 3000);
 });
 
 // ---- Recommendations ----
@@ -2357,19 +1812,16 @@ function celebrate() {
 // KEYBOARD SHORTCUTS
 // ================================================================
 // Quick navigation without the mouse:
-//   1-6  -> switch tabs (Now Playing / Leaderboard / Wrapped / Share / For You / Settings)
+//   0-4  -> switch tabs (Home / Now Playing / Leaderboard / For You / Settings)
 //   M    -> toggle mini always-on-top mode
-//   /    -> focus the history search (when on Wrapped)
 // Ignored while typing in an input so we don't hijack the search box etc.
 (function initShortcuts() {
   const TAB_KEYS = {
     '0': 'home',
     '1': 'now-playing',
     '2': 'leaderboard',
-    '3': 'wrapped',
-    '4': 'share',
-    '5': 'recs',
-    '6': 'settings',
+    '3': 'recs',
+    '4': 'settings',
   };
   document.addEventListener('keydown', (e) => {
     // Don't intercept when the user is typing in a field.
@@ -2383,14 +1835,6 @@ function celebrate() {
     } else if (e.key === 'm' || e.key === 'M') {
       e.preventDefault();
       toggleMiniMode();
-    } else if (e.key === '/') {
-      // Jump to Wrapped + focus search
-      e.preventDefault();
-      showTab('wrapped');
-      setTimeout(() => {
-        const s = document.getElementById('history-search');
-        if (s) s.focus();
-      }, 100);
     }
   });
 })();
@@ -3045,3 +2489,4 @@ document.querySelectorAll('[data-tab]').forEach(btn => {
     }
   });
 });
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   

@@ -476,25 +476,6 @@ function runApp() {
   });
 
 
-  ipcMain.handle('get-throwback', () => {
-    if (playHistory.length === 0) return null;
-    const now = new Date();
-    const candidates = [
-      { label: 'A week ago', date: new Date(now.getTime() - 7*86400000) },
-      { label: 'A month ago', date: new Date(now.getFullYear(), now.getMonth()-1, now.getDate()) },
-      { label: 'A year ago', date: new Date(now.getFullYear()-1, now.getMonth(), now.getDate()) },
-    ];
-    const dk = d => d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate();
-    for (let i = candidates.length-1; i >= 0; i--) {
-      const plays = playHistory.filter(e => dk(new Date(e.timestamp)) === dk(candidates[i].date));
-      if (plays.length === 0) continue;
-      const sc = {}; for (const e of plays) { const k=e.name+'||'+e.artist; if(!sc[k])sc[k]={name:e.name,artist:e.artist,count:0}; sc[k].count++; }
-      return { label: candidates[i].label, dateStr: candidates[i].date.toLocaleDateString(), totalPlays: plays.length, topSongs: Object.values(sc).sort((a,b)=>b.count-a.count).slice(0,3) };
-    }
-    return null;
-  });
-
-
   ipcMain.handle('set-setting', (_event, key, value) => {
     appSettings[key] = value;
     saveSettings(appSettings);
@@ -590,7 +571,8 @@ function runApp() {
   // Saved to disk at %APPDATA%/musictodiscord/play-history.json
   // Each entry: { name, artist, album, timestamp (ms), duration (s) }
   // Kept separate from Firestore -- this is purely local, richer data
-  // used for the Wrapped feature. Capped at 10,000 entries.
+  // used for achievements, streaks, and recommendations. Capped at 10,000
+  // entries.
   const historyFile = path.join(app.getPath('userData'), 'play-history.json');
 
   function loadHistory() {
@@ -2129,91 +2111,6 @@ function runApp() {
     mainWindow.webContents.send('leaderboard-changed');
   }
 
-  // ---- Wrapped IPC ----
-  ipcMain.handle('get-wrapped', (_event, monthKey) => {
-    // monthKey format: "YYYY-MM". Defaults to current month.
-    const month = monthKey || getCurrentMonthKey();
-    const [year, mon] = month.split('-').map(Number);
-
-    const start = new Date(year, mon - 1, 1).getTime();
-    const end = new Date(year, mon, 1).getTime();
-
-    const entries = playHistory.filter(
-      (e) => e.timestamp >= start && e.timestamp < end
-    );
-
-    if (entries.length === 0) return null;
-
-    // Top songs
-    const songCounts = {};
-    for (const e of entries) {
-      const k = `${e.name}||${e.artist}`;
-      if (!songCounts[k]) songCounts[k] = { name: e.name, artist: e.artist, album: e.album, count: 0 };
-      songCounts[k].count++;
-    }
-    const topSongs = Object.values(songCounts)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
-
-    // Top artists
-    const artistCounts = {};
-    for (const e of entries) {
-      const k = e.artist || 'Unknown';
-      if (!artistCounts[k]) artistCounts[k] = { artist: k, count: 0 };
-      artistCounts[k].count++;
-    }
-    const topArtists = Object.values(artistCounts)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
-
-    // Busiest hour (0-23)
-    const hourCounts = new Array(24).fill(0);
-    for (const e of entries) {
-      hourCounts[new Date(e.timestamp).getHours()]++;
-    }
-    const busiestHour = hourCounts.indexOf(Math.max(...hourCounts));
-
-    // Total plays and estimated listening time
-    const totalPlays = entries.length;
-    const totalSeconds = entries.reduce((sum, e) => sum + (e.duration || 0), 0);
-
-    // Most active day
-    const dayCounts = {};
-    for (const e of entries) {
-      const d = new Date(e.timestamp);
-      const dk = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-      dayCounts[dk] = (dayCounts[dk] || 0) + 1;
-    }
-    const mostActiveDay = Object.entries(dayCounts)
-      .sort((a, b) => b[1] - a[1])[0];
-    const mostActiveDayDate = mostActiveDay
-      ? new Date(...mostActiveDay[0].split('-').map(Number))
-      : null;
-
-    return {
-      month,
-      totalPlays,
-      totalSeconds: Math.round(totalSeconds),
-      topSongs,
-      topArtists,
-      busiestHour,
-      mostActiveDayLabel: mostActiveDayDate
-        ? mostActiveDayDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
-        : null,
-      mostActiveDayCount: mostActiveDay ? mostActiveDay[1] : 0,
-    };
-  });
-
-  ipcMain.handle('get-wrapped-months', () => {
-    // Returns a list of months that have any history, most recent first
-    const months = new Set();
-    for (const e of playHistory) {
-      const d = new Date(e.timestamp);
-      months.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-    }
-    return [...months].sort().reverse();
-  });
-
   // ---- Streaks ----
   ipcMain.handle('get-streaks', () => {
     if (playHistory.length === 0) return { current: 0, longest: 0, todayCount: 0 };
@@ -2358,19 +2255,6 @@ function runApp() {
     } catch(e) {
       return { listeners: [], total: 0, unavailable: true };
     }
-  });
-
-  ipcMain.handle('get-share-card', () => {
-    if (!lastTrackState || lastTrackState.state === 'not_running' || lastTrackState.state === 'stopped') {
-      return null;
-    }
-    return {
-      name: lastTrackState.name || 'Unknown track',
-      artist: lastTrackState.artist || 'Unknown artist',
-      album: lastTrackState.album || '',
-      artworkDataUrl: lastTrackState.artworkDataUrl || null,
-      state: lastTrackState.state,
-    };
   });
 
   ipcMain.handle('get-leaderboard', async () => {
@@ -2773,39 +2657,6 @@ function runApp() {
       startLeaderboardSync();
     }
 
-    // Monthly recap: if a new month has started since the user last saw a
-    // recap AND they have listening history from last month, pop a friendly
-    // "your Wrapped is ready" notification. Tracked via a setting so it fires
-    // once per month.
-    try {
-      const nowMonth = getCurrentMonthKey();
-      if (appSettings.lastRecapMonth !== nowMonth) {
-        // Was there any play last month?
-        const lastMonthDate = new Date();
-        lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
-        const lastMonthKey = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
-        const hadLastMonth = playHistory.some((e) => {
-          const d = new Date(e.timestamp);
-          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === lastMonthKey;
-        });
-        // Only notify if we've seen a previous recap month before (avoids
-        // firing on the very first launch) and there's data to recap.
-        if (appSettings.lastRecapMonth && hadLastMonth) {
-          const { Notification } = require('electron');
-          if (Notification.isSupported()) {
-            new Notification({
-              title: 'Your Wrapped is ready!',
-              body: 'A new month began — check the Wrapped tab to see last month\'s listening.',
-              icon: path.join(__dirname, '..', 'assets', 'tray-icon.png'),
-            }).show();
-          }
-        }
-        appSettings.lastRecapMonth = nowMonth;
-        saveSettings(appSettings);
-      }
-    } catch (e) {
-      log.warn('Monthly recap check failed:', e.message);
-    }
 
 
     // Check for updates ~5s after launch, then silently every few hours.
