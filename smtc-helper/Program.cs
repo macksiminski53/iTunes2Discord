@@ -212,6 +212,13 @@ internal static class Program
                 duration = duration,
                 position = position,
                 artworkPath = artworkPath,
+                // The session's app identifier (e.g.
+                // "AppleInc.AppleMusicWin_nzyj5cx40ttqa!App" for Apple Music,
+                // "Spotify.exe" for Spotify, a browser's AUMID for a web
+                // player, etc.). main.js uses this to gate Apple-only
+                // features (MK Connect) without restricting SMTC itself,
+                // which still happily supports any app for Discord sync.
+                source = session.SourceAppUserModelId ?? "",
             };
 
             Console.WriteLine(JsonSerializer.Serialize(result));

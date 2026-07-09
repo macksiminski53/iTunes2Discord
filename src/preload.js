@@ -99,4 +99,12 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   disableDevPasscode: () => ipcRenderer.invoke('disable-dev-passcode'),
   getDevPasscodeStatus: () => ipcRenderer.invoke('get-dev-passcode-status'),
   sendOwnerNotification: (title, body) => ipcRenderer.invoke('send-owner-notification', { title, body }),
+
+  // MK Connect -- mirrors now-playing status to a user's MK chat account
+  mkLogin: (creds) => ipcRenderer.invoke('mk-login', creds),
+  mkLogout: () => ipcRenderer.invoke('mk-logout'),
+  mkStatus: () => ipcRenderer.invoke('mk-status'),
+  onMkStatusChanged: (callback) => {
+    ipcRenderer.on('mk-status-changed', () => callback());
+  },
 });

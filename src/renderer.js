@@ -148,6 +148,7 @@ function resetTheme() {
 }
 
 // Leaderboard / tabs
+const elTabBtnHome = document.getElementById('tab-btn-home');
 const elTabBtnNowPlaying = document.getElementById('tab-btn-now-playing');
 const elTabBtnLeaderboard = document.getElementById('tab-btn-leaderboard');
 const elTabBtnWrapped = document.getElementById('tab-btn-wrapped');
@@ -523,6 +524,8 @@ function loadLeaderboard() {
 let devRefreshTimer = null;
 
 function showTab(tab) {
+  document.body.classList.toggle('tab-home', tab === 'home');
+  document.body.classList.toggle('tab-now-playing', tab === 'now-playing');
   document.body.classList.toggle('tab-leaderboard', tab === 'leaderboard');
   document.body.classList.toggle('tab-dev', tab === 'dev');
   document.body.classList.toggle('tab-wrapped', tab === 'wrapped');
@@ -530,6 +533,9 @@ function showTab(tab) {
   document.body.classList.toggle('tab-recs', tab === 'recs');
   document.body.classList.toggle('tab-pet', tab === 'pet');
   document.body.classList.toggle('tab-settings', tab === 'settings');
+  document.body.classList.toggle('tab-townhall', tab === 'townhall');
+  document.body.classList.toggle('tab-profile', tab === 'profile');
+  if (elTabBtnHome) elTabBtnHome.classList.toggle('active', tab === 'home');
   elTabBtnNowPlaying.classList.toggle('active', tab === 'now-playing');
   elTabBtnLeaderboard.classList.toggle('active', tab === 'leaderboard');
   elTabBtnDev.classList.toggle('active', tab === 'dev');
@@ -538,6 +544,9 @@ function showTab(tab) {
   elTabBtnRecs.classList.toggle('active', tab === 'recs');
   if (elTabBtnPet) elTabBtnPet.classList.toggle('active', tab === 'pet');
   elTabBtnSettings.classList.toggle('active', tab === 'settings');
+
+  if (tab === 'home') updateHomeProfileLabel();
+  if (tab === 'profile') loadProfile();
 
   if (tab === 'leaderboard') {
     loadLeaderboard();
@@ -568,6 +577,50 @@ function showTab(tab) {
 
 const elTabBtnPet = document.getElementById('tab-btn-pet');
 let petRefreshTimer = null;
+
+function updateHomeProfileLabel() {
+  const el = document.getElementById('home-tile-profile-label');
+  if (el) el.textContent = currentUsername || 'Profile';
+}
+
+if (elTabBtnHome) elTabBtnHome.addEventListener('click', () => showTab('home'));
+
+// Home grid tiles + Town Hall stub each just route into the existing tabs.
+document.querySelectorAll('.home-tile[data-go]').forEach((btn) => {
+  btn.addEventListener('click', () => showTab(btn.dataset.go));
+});
+const elTownhallBack = document.getElementById('townhall-back');
+if (elTownhallBack) elTownhallBack.addEventListener('click', () => showTab('home'));
+
+const elProfileBack = document.getElementById('profile-back');
+if (elProfileBack) elProfileBack.addEventListener('click', () => showTab('home'));
+const elProfileSetUsername = document.getElementById('profile-set-username');
+if (elProfileSetUsername) elProfileSetUsername.addEventListener('click', () => showTab('settings'));
+
+// Pulls together the username + a couple of headline stats for the
+// standalone Profile screen (separate from Settings, which is toggles only).
+function loadProfile() {
+  const nameEl = document.getElementById('profile-username');
+  const letterEl = document.getElementById('profile-avatar-letter');
+  const setBtn = document.getElementById('profile-set-username');
+  const hoursEl = document.getElementById('profile-stat-hours');
+  const streakEl = document.getElementById('profile-stat-streak');
+
+  const name = currentUsername;
+  if (nameEl) nameEl.textContent = name || 'Not set';
+  if (letterEl) letterEl.textContent = name ? name.trim()[0].toUpperCase() : '?';
+  if (setBtn) setBtn.style.display = name ? 'none' : 'block';
+
+  window.musicToDiscord.getAchievements().then((data) => {
+    if (hoursEl && data && data.stats) {
+      hoursEl.textContent = Math.round((data.stats.totalHours || 0) * 10) / 10;
+    }
+  }).catch(() => {});
+
+  window.musicToDiscord.getStreaks().then((data) => {
+    if (streakEl && data) streakEl.textContent = data.current || 0;
+  }).catch(() => {});
+}
 
 elTabBtnNowPlaying.addEventListener('click', () => showTab('now-playing'));
 elTabBtnLeaderboard.addEventListener('click', () => showTab('leaderboard'));
@@ -1818,6 +1871,100 @@ function applyRandomThemeToggle(on) {
   });
 })();
 
+// ================================================================
+// MK CONNECT
+// ================================================================
+// Mirrors now-playing to a user's MK (a Discord-lookalike chat app) account,
+// same idea as the Discord sync above but hitting MK's own REST API. Login
+// exchanges username/password for a token once (main process stores it);
+// after that this is just a toggle plus a "song - artist" push on change.
+(function initMkConnect() {
+  const loginFields = document.getElementById('mk-login-fields');
+  const connectedFields = document.getElementById('mk-connected-fields');
+  const statusSub = document.getElementById('mk-status-sub');
+  const urlInput = document.getElementById('mk-url-input');
+  const usernameInput = document.getElementById('mk-username-input');
+  const passwordInput = document.getElementById('mk-password-input');
+  const errorEl = document.getElementById('mk-login-error');
+  const connectBtn = document.getElementById('mk-connect-btn');
+  const disconnectBtn = document.getElementById('mk-disconnect-btn');
+  const toggleEnabled = document.getElementById('toggle-mk-enabled');
+  if (!loginFields || !connectedFields) return;
+
+  function render(status) {
+    const linked = !!(status && status.linked);
+    loginFields.style.display = linked ? 'none' : 'flex';
+    connectedFields.style.display = linked ? 'flex' : 'none';
+    if (statusSub) {
+      statusSub.textContent = linked
+        ? `Connected as ${status.username} (${status.apiUrl})`
+        : 'Not connected';
+    }
+    if (toggleEnabled && status) {
+      toggleEnabled.classList.toggle('on', !!status.enabled);
+      toggleEnabled.setAttribute('aria-checked', status.enabled ? 'true' : 'false');
+    }
+  }
+
+  function refresh() {
+    window.musicToDiscord.mkStatus().then(render).catch(() => {});
+  }
+
+  if (connectBtn) {
+    connectBtn.addEventListener('click', () => {
+      const apiUrl = (urlInput?.value || '').trim();
+      const username = (usernameInput?.value || '').trim();
+      const password = passwordInput?.value || '';
+      if (errorEl) errorEl.style.display = 'none';
+      connectBtn.disabled = true;
+      connectBtn.textContent = 'Connecting…';
+      window.musicToDiscord.mkLogin({ apiUrl, username, password }).then((result) => {
+        connectBtn.disabled = false;
+        connectBtn.textContent = 'Connect';
+        if (result && result.ok) {
+          if (passwordInput) passwordInput.value = '';
+          refresh();
+        } else if (errorEl) {
+          errorEl.textContent = (result && result.error) || 'Could not connect.';
+          errorEl.style.display = 'block';
+        }
+      }).catch(() => {
+        connectBtn.disabled = false;
+        connectBtn.textContent = 'Connect';
+        if (errorEl) {
+          errorEl.textContent = 'Could not reach MK.';
+          errorEl.style.display = 'block';
+        }
+      });
+    });
+  }
+
+  if (disconnectBtn) {
+    disconnectBtn.addEventListener('click', () => {
+      window.musicToDiscord.mkLogout().then(refresh).catch(() => {});
+    });
+  }
+
+  if (toggleEnabled) {
+    function toggle() {
+      const on = !toggleEnabled.classList.contains('on');
+      toggleEnabled.classList.toggle('on', on);
+      toggleEnabled.setAttribute('aria-checked', on ? 'true' : 'false');
+      window.musicToDiscord.setSetting('mkEnabled', on);
+    }
+    toggleEnabled.addEventListener('click', toggle);
+    toggleEnabled.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+    });
+  }
+
+  if (window.musicToDiscord.onMkStatusChanged) {
+    window.musicToDiscord.onMkStatusChanged(refresh);
+  }
+
+  refresh();
+})();
+
 // Applies a custom accent color by overriding the --indigo/--sky variables.
 // Passing null clears the override (back to theme default).
 function applyAccent(color) {
@@ -2216,6 +2363,7 @@ function celebrate() {
 // Ignored while typing in an input so we don't hijack the search box etc.
 (function initShortcuts() {
   const TAB_KEYS = {
+    '0': 'home',
     '1': 'now-playing',
     '2': 'leaderboard',
     '3': 'wrapped',
@@ -2298,7 +2446,16 @@ function toggleMiniMode() {
 //   808S             -> moody dark-blue theme flash ("heartbreak")
 //   YEEZY            -> sandy/beige theme flash
 //   BARKING          -> a row of paw prints floats up
+//   GOODMORNING      -> replays the Home screen's cinematic boot intro
+//   BEAR             -> the Dropout Bear floats up across the screen
+//   POWER            -> flash a "Power" red/black theme
+//   PABLO            -> flash a "The Life of Pablo" cream theme
 //   SECRET           -> reveals the full list of codes as a toast
+//
+// Two more eggs beyond the code box:
+//   - Rapid-clicking the album art (Now Playing) does a DJ record scratch.
+//   - Rapid-clicking the Home wordmark replays the GOODMORNING intro.
+//   - The classic Konami code (↑↑↓↓←→←→BA) works anywhere in the window.
 function triggerEasterEgg(egg) {
   switch (egg) {
     case 'confetti':
@@ -2330,7 +2487,20 @@ function triggerEasterEgg(egg) {
       eggToast('🐾 Woof');
       break;
     case 'secret':
-      eggToast('Codes: CONFETTI · RAINBOW · MATRIX · GOLDEN · VAPOR · 808S · YEEZY · BARKING · SNOW · FIRE · DISCO · STARS · GLITCH · ZEN', 7000);
+      eggToast('Codes: CONFETTI · RAINBOW · MATRIX · GOLDEN · VAPOR · 808S · YEEZY · BARKING · SNOW · FIRE · DISCO · STARS · GLITCH · ZEN · GOODMORNING · BEAR · POWER · PABLO', 8000);
+      break;
+    case 'goodmorning':
+      playGoodMorningIntro();
+      break;
+    case 'bear':
+      particleRise('🐻');
+      eggToast('🐻 Dropout Bear says hi');
+      break;
+    case 'power':
+      themeFlash('#C0392B', '#1a0808', '"No one man should have all that power" 👑');
+      break;
+    case 'pablo':
+      themeFlash('#D8C9A3', '#1a1710', 'The Life of Pablo');
       break;
     case 'snow':
       particleFall('❄', '#cfe8ff');
@@ -2534,6 +2704,104 @@ function glitchEffect() {
   }, 70);
 }
 
+// Cinematic Home boot intro: fade up from black with the wordmark zooming
+// in and flaring bright, a nod to the stark rising-glow title-card look the
+// Home screen was designed around. Triggered by the GOODMORNING code or by
+// rapid-clicking the wordmark itself.
+function playGoodMorningIntro() {
+  showTab('home');
+  const view = document.getElementById('view-home');
+  const logo = document.getElementById('home-logo');
+  if (!view) return;
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:absolute;inset:0;background:#000;z-index:5;opacity:1;transition:opacity 1.6s ease;pointer-events:none;';
+  view.appendChild(overlay);
+
+  if (logo) {
+    logo.style.transition = 'none';
+    logo.style.transform = 'scale(0.7)';
+    logo.style.filter = 'brightness(0.25)';
+  }
+
+  eggToast('Wake up, get up, get out the bed...', 3200);
+
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      overlay.style.opacity = '0';
+      if (logo) {
+        logo.style.transition = 'transform 1.8s cubic-bezier(0.22,1,0.36,1), filter 1.8s ease';
+        logo.style.transform = 'scale(1)';
+        logo.style.filter = 'brightness(1.7)';
+        setTimeout(() => { logo.style.filter = ''; }, 1800);
+      }
+      setTimeout(() => overlay.remove(), 1700);
+    }, 150);
+  });
+}
+
+// DJ record scratch: rapidly wobble the album art, then settle back.
+function recordScratch() {
+  const art = document.getElementById('art-wrap');
+  if (!art) return;
+  const prevTransition = art.style.transition;
+  const prevTransform = art.style.transform;
+  art.style.transition = 'transform 0.12s linear';
+  let n = 0;
+  const iv = setInterval(() => {
+    const deg = (n % 2 === 0) ? 35 : -25;
+    art.style.transform = `rotate(${deg}deg) scale(1.05)`;
+    if (++n > 10) {
+      clearInterval(iv);
+      art.style.transition = 'transform 0.4s cubic-bezier(0.22,1,0.36,1)';
+      art.style.transform = prevTransform || '';
+      setTimeout(() => { art.style.transition = prevTransition || ''; }, 450);
+    }
+  }, 90);
+  eggToast('🎧 Scratch!');
+}
+
+// Rapid-click detector: fires callback once `count` clicks land on `el`
+// within `windowMs` of each other.
+function trackRapidClicks(el, count, windowMs, callback) {
+  if (!el) return;
+  let clicks = [];
+  el.addEventListener('click', () => {
+    const now = Date.now();
+    clicks.push(now);
+    clicks = clicks.filter((t) => now - t <= windowMs);
+    if (clicks.length >= count) {
+      clicks = [];
+      callback();
+    }
+  });
+}
+trackRapidClicks(document.getElementById('art-wrap'), 8, 2500, recordScratch);
+trackRapidClicks(document.getElementById('home-logo-text'), 5, 3000, playGoodMorningIntro);
+
+// Classic Konami code (↑↑↓↓←→←→BA), purely cosmetic, works anywhere the
+// user isn't actively typing.
+(function initKonami() {
+  const seq = ['arrowup', 'arrowup', 'arrowdown', 'arrowdown', 'arrowleft', 'arrowright', 'arrowleft', 'arrowright', 'b', 'a'];
+  let pos = 0;
+  document.addEventListener('keydown', (e) => {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+    const key = e.key.toLowerCase();
+    if (key === seq[pos]) {
+      pos++;
+      if (pos === seq.length) {
+        pos = 0;
+        rainbowAccent();
+        celebrate();
+        eggToast('🎮 KONAMI CODE — 30 extra lives (purely cosmetic)', 4000);
+      }
+    } else {
+      pos = (key === seq[0]) ? 1 : 0;
+    }
+  });
+})();
+
 // ================================================================
 // FRIEND FAVORITES
 // ================================================================
@@ -2562,15 +2830,17 @@ function toggleFavorite(name) {
 // screen. Reuses the listening-party presence data. Favorited users are
 // highlighted. Hidden when nobody (or only you) is listening.
 (function initTicker() {
-  const wrap = document.getElementById('ticker-wrap');
-  const trackEl = document.getElementById('ticker-track');
-  if (!wrap || !trackEl) return;
+  // Multiple screens (Now Playing, Home) each host their own ticker instance;
+  // both share this one refresh loop, matched up by DOM order.
+  const wraps = Array.from(document.querySelectorAll('.ticker-wrap'));
+  const tracks = Array.from(document.querySelectorAll('.ticker-track'));
+  if (!wraps.length || !tracks.length) return;
 
   async function refresh() {
     try {
       const data = await window.musicToDiscord.getListeningParty();
       if (!data || data.total === 0) {
-        wrap.style.display = 'none';
+        wraps.forEach((w) => { w.style.display = 'none'; });
         return;
       }
       // Build one item per listener. Duplicate the sequence so the loop scroll
@@ -2580,10 +2850,11 @@ function toggleFavorite(name) {
         const star = isFavorite(l.username) ? '\u2605 ' : '';
         return `<span class="ticker-item"><span class="${favClass}">${star}${esc(l.username)}</span> \u2192 ${esc(l.song)}${l.artist ? ' \u2014 ' + esc(l.artist) : ''}</span>`;
       }).join('');
-      trackEl.innerHTML = items + items; // duplicated for seamless loop
-      wrap.style.display = 'block';
+      const html = items + items; // duplicated for seamless loop
+      tracks.forEach((t) => { t.innerHTML = html; });
+      wraps.forEach((w) => { w.style.display = 'block'; });
     } catch (e) {
-      wrap.style.display = 'none';
+      wraps.forEach((w) => { w.style.display = 'none'; });
     }
   }
 

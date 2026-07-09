@@ -740,11 +740,12 @@
   }
 
   #view-now-playing {
-    display: flex;
+    display: none;
     flex-direction: column;
     flex: 1;
     min-height: 0;
   }
+  body.tab-now-playing #view-now-playing { display: flex; }
   #view-leaderboard {
     display: none;
     flex-direction: column;
@@ -770,7 +771,7 @@
   }
 
   /* ---- Global now-playing ticker ---- */
-  #ticker-wrap {
+  .ticker-wrap {
     overflow: hidden;
     white-space: nowrap;
     padding: 8px 0;
@@ -780,17 +781,17 @@
     -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
     mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
   }
-  #ticker-track {
+  .ticker-track {
     display: inline-block;
     white-space: nowrap;
     animation: ticker-scroll 30s linear infinite;
     font-size: 12px;
     color: var(--text-dim);
   }
-  #ticker-track:hover { animation-play-state: paused; }
-  #ticker-track .ticker-item { margin-right: 40px; }
-  #ticker-track .ticker-user { color: var(--indigo); font-weight: 700; }
-  #ticker-track .ticker-fav { color: var(--good); }
+  .ticker-track:hover { animation-play-state: paused; }
+  .ticker-track .ticker-item { margin-right: 40px; }
+  .ticker-track .ticker-user { color: var(--indigo); font-weight: 700; }
+  .ticker-track .ticker-fav { color: var(--good); }
   @keyframes ticker-scroll {
     0%   { transform: translateX(0); }
     100% { transform: translateX(-50%); }
@@ -2271,9 +2272,330 @@
     display: block;
   }
 
+  /* ====================================================================
+     HOME: futuristic launcher grid.
+     Near-black backdrop with a single rising glow (nod to a stark,
+     minimal sci-fi title-card look: one light source, crisp geometry,
+     huge tracking-wide wordmark) plus faint moving scanlines.
+     ==================================================================== */
+  #view-home {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    background: #050507;
+    overflow: hidden;
+  }
+  body.tab-home #view-home { display: flex; }
+  body.tab-home #view-now-playing,
+  body.tab-home #view-leaderboard { display: none; }
+
+  #home-glow {
+    position: absolute;
+    top: -30%;
+    left: 50%;
+    width: 140%;
+    height: 70%;
+    transform: translateX(-50%);
+    background: radial-gradient(closest-side, rgba(63,199,255,0.28), rgba(88,101,242,0.16) 45%, transparent 75%);
+    filter: blur(6px);
+    pointer-events: none;
+    animation: home-glow-pulse 6s ease-in-out infinite;
+  }
+  @keyframes home-glow-pulse {
+    0%, 100% { opacity: 0.75; transform: translateX(-50%) scale(1); }
+    50%      { opacity: 1;    transform: translateX(-50%) scale(1.06); }
+  }
+
+  #home-scanlines {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(255,255,255,0.025) 0px,
+      rgba(255,255,255,0.025) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    mix-blend-mode: screen;
+    opacity: 0.5;
+  }
+
+  #home-logo {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 26px 20px 14px;
+    -webkit-app-region: no-drag;
+  }
+  #home-logo-text {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    color: var(--text);
+    text-shadow: 0 0 12px rgba(63,199,255,0.55), 0 0 28px rgba(88,101,242,0.35);
+    cursor: pointer;
+  }
+  #home-logo-accent {
+    color: var(--sky);
+    text-shadow: 0 0 14px var(--sky);
+  }
+  #home-logo-sub {
+    margin-top: 6px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.3em;
+    color: var(--text-dim);
+    opacity: 0.8;
+  }
+
+  #home-grid {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    padding: 4px 22px 18px;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .home-tile {
+    -webkit-app-region: no-drag;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 84px;
+    background: linear-gradient(180deg, rgba(23,23,31,0.9), rgba(15,15,20,0.9));
+    border: 1px solid rgba(88,101,242,0.35);
+    border-radius: 14px;
+    color: var(--text);
+    cursor: pointer;
+    box-shadow: 0 0 0 rgba(63,199,255,0), inset 0 1px 0 rgba(255,255,255,0.04);
+    transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.12s ease, background 0.25s ease;
+  }
+  .home-tile:hover {
+    border-color: var(--sky);
+    box-shadow: 0 0 18px rgba(63,199,255,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
+    transform: translateY(-2px);
+  }
+  .home-tile:active { transform: scale(0.96); }
+
+  .home-tile-icon {
+    font-size: 20px;
+    line-height: 1;
+    color: var(--sky);
+    text-shadow: 0 0 10px rgba(63,199,255,0.7);
+  }
+  .home-tile-label {
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+
+  #view-home .ticker-wrap {
+    position: relative;
+    z-index: 1;
+    margin: 0 22px 18px;
+    border-top: 1px solid rgba(88,101,242,0.4);
+    border-bottom: 1px solid rgba(88,101,242,0.4);
+  }
+
+  /* ====================================================================
+     TOWN HALL: placeholder stub, reached only from the Home grid tile.
+     ==================================================================== */
+  #view-townhall {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    text-align: center;
+    padding: 28px;
+    background: #050507;
+    overflow: hidden;
+  }
+  body.tab-townhall #view-townhall { display: flex; }
+  body.tab-townhall #view-now-playing,
+  body.tab-townhall #view-leaderboard { display: none; }
+
+  #townhall-glow {
+    position: absolute;
+    top: -20%;
+    left: 50%;
+    width: 120%;
+    height: 60%;
+    transform: translateX(-50%);
+    background: radial-gradient(closest-side, rgba(176,108,255,0.25), transparent 70%);
+    filter: blur(6px);
+    pointer-events: none;
+  }
+  #townhall-back {
+    position: absolute;
+    top: 14px;
+    left: 22px;
+  }
+  #townhall-icon {
+    position: relative;
+    z-index: 1;
+    font-size: 34px;
+    color: var(--magenta);
+    text-shadow: 0 0 16px rgba(176,108,255,0.6);
+    margin-bottom: 10px;
+  }
+  #townhall-title {
+    position: relative;
+    z-index: 1;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  #townhall-sub {
+    position: relative;
+    z-index: 1;
+    font-size: 13px;
+    color: var(--text-dim);
+    max-width: 280px;
+    line-height: 1.5;
+  }
+
+  /* ====================================================================
+     PROFILE: username, avatar, and a couple of headline stats.
+     Reached only from the Home grid tile, same pattern as Town Hall.
+     ==================================================================== */
+  #view-profile {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    padding: 44px 28px 28px;
+    background: #050507;
+    overflow-y: auto;
+  }
+  body.tab-profile #view-profile { display: flex; }
+  body.tab-profile #view-now-playing,
+  body.tab-profile #view-leaderboard { display: none; }
+
+  #profile-glow {
+    position: absolute;
+    top: -25%;
+    left: 50%;
+    width: 130%;
+    height: 55%;
+    transform: translateX(-50%);
+    background: radial-gradient(closest-side, rgba(88,101,242,0.3), transparent 72%);
+    filter: blur(6px);
+    pointer-events: none;
+  }
+  #profile-back {
+    position: absolute;
+    top: 14px;
+    left: 22px;
+  }
+
+  #profile-avatar {
+    position: relative;
+    z-index: 1;
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--indigo), var(--magenta) 55%, var(--sky));
+    box-shadow: 0 8px 24px rgba(0,0,0,0.45), 0 0 0 3px rgba(255,255,255,0.06);
+    margin-bottom: 16px;
+  }
+  #profile-avatar-letter {
+    font-size: 38px;
+    font-weight: 800;
+    color: #fff;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  }
+
+  #profile-username {
+    position: relative;
+    z-index: 1;
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  #profile-set-username {
+    position: relative;
+    z-index: 1;
+    margin-bottom: 8px;
+  }
+
+  #profile-stats {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 320px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 22px;
+  }
+  .profile-stat-card {
+    background: linear-gradient(180deg, rgba(23,23,31,0.9), rgba(15,15,20,0.9));
+    border: 1px solid rgba(88,101,242,0.35);
+    border-radius: 14px;
+    padding: 16px 10px;
+    text-align: center;
+  }
+  .profile-stat-value {
+    font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--sky);
+    text-shadow: 0 0 10px rgba(63,199,255,0.5);
+    margin-bottom: 4px;
+  }
+  .profile-stat-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  /* ---- MK Connect login fields ---- */
+  .mk-input {
+    -webkit-app-region: no-drag;
+    width: 100%;
+    background: var(--bg-raised);
+    border: 1px solid var(--divider);
+    color: var(--text);
+    font-size: 12px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    outline: none;
+    box-sizing: border-box;
+  }
+  .mk-input:focus { border-color: var(--indigo); }
+
 </style>
 </head>
-<body>
+<body class="tab-home">
 
   <div id="setup-overlay">
     <div id="setup-title">Welcome to Music to Discord</div>
@@ -2298,7 +2620,8 @@
   </div>
 
   <div id="tabs">
-    <button class="tab-btn active" id="tab-btn-now-playing">Now Playing</button>
+    <button class="tab-btn active" id="tab-btn-home">Home</button>
+    <button class="tab-btn" id="tab-btn-now-playing">Now Playing</button>
     <button class="tab-btn" id="tab-btn-leaderboard">Leaderboard</button>
     <button class="tab-btn" id="tab-btn-wrapped">Wrapped</button>
     <button class="tab-btn" id="tab-btn-share">Share</button>
@@ -2306,6 +2629,83 @@
     <button class="tab-btn" id="tab-btn-pet">Pet</button>
     <button class="tab-btn" id="tab-btn-settings">Settings</button>
     <button class="tab-btn" id="tab-btn-dev" style="display: none;">Dev</button>
+  </div>
+
+  <!-- ================= HOME: futuristic launcher grid ================= -->
+  <div id="view-home">
+    <div id="home-glow"></div>
+    <div id="home-scanlines"></div>
+    <div id="home-logo">
+      <span id="home-logo-text">MUSIC<span id="home-logo-accent">2</span>DISCORD</span>
+      <span id="home-logo-sub">SYSTEM ONLINE</span>
+    </div>
+    <div id="home-grid">
+      <button class="home-tile" id="home-tile-status" data-go="now-playing">
+        <span class="home-tile-icon">&#9834;</span>
+        <span class="home-tile-label">Status</span>
+      </button>
+      <button class="home-tile" id="home-tile-profile" data-go="profile">
+        <span class="home-tile-icon">&#9673;</span>
+        <span class="home-tile-label" id="home-tile-profile-label">Profile</span>
+      </button>
+      <button class="home-tile" id="home-tile-leaderboard" data-go="leaderboard">
+        <span class="home-tile-icon">&#9650;</span>
+        <span class="home-tile-label">Leaderboard</span>
+      </button>
+      <button class="home-tile" id="home-tile-share" data-go="share">
+        <span class="home-tile-icon">&#10148;</span>
+        <span class="home-tile-label">Share Card</span>
+      </button>
+      <button class="home-tile" id="home-tile-wrapped" data-go="wrapped">
+        <span class="home-tile-icon">&#10022;</span>
+        <span class="home-tile-label">Wrapped</span>
+      </button>
+      <button class="home-tile" id="home-tile-recs" data-go="recs">
+        <span class="home-tile-icon">&#9737;</span>
+        <span class="home-tile-label">For You</span>
+      </button>
+      <button class="home-tile" id="home-tile-townhall" data-go="townhall">
+        <span class="home-tile-icon">&#9873;</span>
+        <span class="home-tile-label">Town Hall</span>
+      </button>
+      <button class="home-tile" id="home-tile-settings" data-go="settings">
+        <span class="home-tile-icon">&#9881;</span>
+        <span class="home-tile-label">Settings</span>
+      </button>
+    </div>
+
+    <!-- Home's own ticker instance (shares the .ticker-wrap/.ticker-track refresh loop) -->
+    <div class="ticker-wrap" id="ticker-wrap-home" style="display:none;">
+      <div class="ticker-track" id="ticker-track-home"></div>
+    </div>
+  </div>
+
+  <!-- ================= TOWN HALL: placeholder stub ================= -->
+  <div id="view-townhall">
+    <div id="townhall-glow"></div>
+    <button class="text-link-btn" id="townhall-back">&larr; Back to Home</button>
+    <div id="townhall-icon">&#9873;</div>
+    <div id="townhall-title">Town Hall</div>
+    <div id="townhall-sub">Community chat, polls, and shared listening events are coming here soon.</div>
+  </div>
+
+  <!-- ================= PROFILE ================= -->
+  <div id="view-profile">
+    <div id="profile-glow"></div>
+    <button class="text-link-btn" id="profile-back">&larr; Back to Home</button>
+    <div id="profile-avatar"><span id="profile-avatar-letter">?</span></div>
+    <div id="profile-username">Not set</div>
+    <button class="text-link-btn" id="profile-set-username" style="display:none;">Set a username in Settings</button>
+    <div id="profile-stats">
+      <div class="profile-stat-card">
+        <div class="profile-stat-value" id="profile-stat-hours">0</div>
+        <div class="profile-stat-label">Hours Listened</div>
+      </div>
+      <div class="profile-stat-card">
+        <div class="profile-stat-value" id="profile-stat-streak">0</div>
+        <div class="profile-stat-label">Markus Alive Streak</div>
+      </div>
+    </div>
   </div>
 
   <div id="view-now-playing">
@@ -2343,8 +2743,8 @@
     </div>
 
     <!-- Global now-playing ticker: scrolls what everyone's playing right now -->
-    <div id="ticker-wrap" style="display:none;">
-      <div id="ticker-track"></div>
+    <div class="ticker-wrap" id="ticker-wrap" style="display:none;">
+      <div class="ticker-track" id="ticker-track"></div>
     </div>
 
     <!-- Fun buttons: each surprises with something different -->
@@ -2719,6 +3119,29 @@
           <div class="row-sub" id="sync-sub">Updates your status while your music plays</div>
         </div>
         <div class="toggle on" id="toggle-sync" role="switch" aria-checked="true" tabindex="0"></div>
+      </div>
+      <div class="row" style="flex-direction: column; align-items: flex-start; gap: 10px;" id="row-mk-connect">
+        <div>
+          <div class="row-label">MK Connect</div>
+          <div class="row-sub" id="mk-status-sub">Not connected</div>
+        </div>
+        <div id="mk-login-fields" style="display:flex; flex-direction:column; gap:8px; width:100%;">
+          <input class="mk-input" id="mk-url-input" type="text" placeholder="MK backend URL (e.g. https://mk-app.onrender.com)" autocomplete="off" />
+          <input class="mk-input" id="mk-username-input" type="text" placeholder="MK username" autocomplete="off" />
+          <input class="mk-input" id="mk-password-input" type="password" placeholder="MK password" autocomplete="off" />
+          <div class="row-sub" id="mk-login-error" style="color:#ED4245; display:none;"></div>
+          <button class="pill-btn" id="mk-connect-btn">Connect</button>
+        </div>
+        <div id="mk-connected-fields" style="display:none; width:100%; flex-direction:column; gap:6px;">
+          <div class="row" style="padding:8px 0 0; border-bottom:none;">
+            <div>
+              <div class="row-label">Report now-playing to MK</div>
+              <div class="row-sub">Pushes "Song - Artist" to your MK status, same idea as Discord</div>
+            </div>
+            <div class="toggle on" id="toggle-mk-enabled" role="switch" aria-checked="true" tabindex="0"></div>
+          </div>
+          <button class="text-link-btn danger-text" id="mk-disconnect-btn">Disconnect MK</button>
+        </div>
       </div>
       <div class="row">
         <div>

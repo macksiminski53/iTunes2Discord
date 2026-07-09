@@ -504,6 +504,89 @@ function runApp() {
     }
     return true;
   });
+
+  // ---- MK Connect ----
+  // Mirrors the now-playing status to a user's MK (a Discord-lookalike chat
+  // app) account, the same idea as Discord Rich Presence but hitting MK's own
+  // REST API instead. Logging in exchanges username/password for a JWT once
+  // (same endpoint the standalone music-reporter script used); after that we
+  // just PATCH /api/auth/status with "Song - Artist" whenever it changes.
+  ipcMain.handle('mk-login', async (_event, { apiUrl, username, password } = {}) => {
+    let cleanUrl = (apiUrl || '').trim().replace(/\/+$/, '');
+    if (cleanUrl && !/^https?:\/\//i.test(cleanUrl)) {
+      // Users will type "mk-app.onrender.com" without a scheme; default to
+      // https rather than failing with an opaque fetch error.
+      cleanUrl = `https://${cleanUrl}`;
+    }
+    if (!cleanUrl || !username || !password) {
+      return { ok: false, error: 'Fill in the URL, username, and password.' };
+    }
+    try {
+      const res = await fetch(`${cleanUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { ok: false, error: data.error || `Login failed (${res.status})` };
+      }
+      appSettings.mkApiUrl = cleanUrl;
+      appSettings.mkUsername = username;
+      appSettings.mkToken = data.token;
+      appSettings.mkEnabled = true;
+      saveSettings(appSettings);
+      mkLastStatus = undefined; // force a fresh push on the next poll
+      log.info(`MK Connect: logged in as ${username} (${cleanUrl})`);
+      return { ok: true, username };
+    } catch (e) {
+      return { ok: false, error: e.message || 'Network error reaching MK' };
+    }
+  });
+
+  ipcMain.handle('mk-logout', () => {
+    delete appSettings.mkToken;
+    delete appSettings.mkApiUrl;
+    delete appSettings.mkUsername;
+    appSettings.mkEnabled = false;
+    saveSettings(appSettings);
+    mkLastStatus = undefined;
+    return true;
+  });
+
+  ipcMain.handle('mk-status', () => ({
+    linked: !!appSettings.mkToken,
+    enabled: !!appSettings.mkEnabled,
+    username: appSettings.mkUsername || null,
+    apiUrl: appSettings.mkApiUrl || null,
+  }));
+
+  async function reportToMK(statusText) {
+    if (!appSettings.mkEnabled || !appSettings.mkToken || !appSettings.mkApiUrl) return;
+    if (statusText === mkLastStatus) return;
+    try {
+      const res = await fetch(`${appSettings.mkApiUrl}/api/auth/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${appSettings.mkToken}`,
+        },
+        body: JSON.stringify({ statusText }),
+      });
+      if (res.ok) {
+        mkLastStatus = statusText;
+      } else if (res.status === 401) {
+        // Token expired/invalid -- stop trying until the user reconnects,
+        // rather than hammering the endpoint every poll.
+        log.warn('MK Connect: token rejected, disabling until re-login');
+        appSettings.mkEnabled = false;
+        saveSettings(appSettings);
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('mk-status-changed');
+      }
+    } catch (e) {
+      log.warn('MK Connect: failed to report status:', e.message);
+    }
+  }
   // Saved to disk at %APPDATA%/musictodiscord/play-history.json
   // Each entry: { name, artist, album, timestamp (ms), duration (s) }
   // Kept separate from Firestore -- this is purely local, richer data
@@ -552,6 +635,7 @@ function runApp() {
   let lastTrackKey = null;
   let lastPosition = null;
   let lastDiscordPushAt = 0; // Date.now() of the last actual setActivity call
+  let mkLastStatus; // undefined = unknown yet, null = cleared, string = last pushed value to MK
   let lastTrackState = null; // cached for the window's initial state request
   let pollTimer = null;
   let enabled = true;
@@ -889,11 +973,21 @@ function runApp() {
     });
   }
 
+  // Matches smtc-helper's `source` field (the session's SourceAppUserModelId)
+  // against Apple Music/iTunes' known app IDs. Used to gate features that
+  // should only ever fire for Apple's own apps (e.g. MK Connect), even
+  // though SMTC itself is general-purpose and picks up Spotify, browser
+  // tabs, etc. just fine for Discord.
+  const APPLE_MUSIC_SOURCE_RE = /AppleInc\.AppleMusicWin|iTunes|AppleMusic/i;
+
   async function getCurrentTrackWindows() {
     // Try classic iTunes (COM) first since it's the most full-featured
     // source (gives us album artwork, which SMTC currently doesn't).
     const fromItunes = await getCurrentTrackWindowsCOM();
     if (fromItunes.state !== 'not_running') {
+      // The COM path only ever talks to iTunes itself, so this is always
+      // an Apple source.
+      fromItunes.isAppleSource = true;
       return fromItunes;
     }
     // iTunes isn't running or has nothing playing -- fall back to SMTC,
@@ -904,7 +998,13 @@ function runApp() {
     // modern media apps register with it too, so this fallback now picks
     // up any of them automatically -- preferring whichever app is actually
     // playing if more than one has a session open at once.
-    return getCurrentTrackSMTC();
+    const fromSmtc = await getCurrentTrackSMTC();
+    // `source` only exists once smtc-helper.exe has been rebuilt to include
+    // it (see smtc-helper/BUILD_INSTRUCTIONS.md) -- until then this is
+    // undefined and isAppleSource stays false, which just means Apple-only
+    // features (MK Connect) stay off rather than guessing.
+    fromSmtc.isAppleSource = typeof fromSmtc.source === 'string' && APPLE_MUSIC_SOURCE_RE.test(fromSmtc.source);
+    return fromSmtc;
   }
 
   function getCurrentTrackMac() {
@@ -938,6 +1038,7 @@ function runApp() {
           duration: parseFloat(durationStr) || 0,
           position: parseFloat(positionStr) || 0,
           artworkPath: null, // Mac artwork support coming in a future version
+          isAppleSource: true, // this path only ever queries the Music app itself
         });
       });
 
@@ -1469,6 +1570,7 @@ function runApp() {
           lastTrackKey = null;
           lastPosition = null;
           if (connected && rpc?.user) await rpc.user.clearActivity().catch(() => {});
+          reportToMK(null);
           updateTrayTooltip(`${APP_NAME} — nothing playing`);
         }
         pushStateUpdate(track);
@@ -1527,6 +1629,10 @@ function runApp() {
             lastTrackKey = key;
             lastDiscordPushAt = Date.now();
           }
+          // MK Connect is Apple Music/iTunes only -- when the source is
+          // anything else (Spotify, a browser tab, etc. via the general SMTC
+          // fallback), clear/skip rather than reporting the wrong app's song.
+          reportToMK(track.isAppleSource ? `${track.name} - ${track.artist}` : null);
 
           // Record a play only on genuine track changes (not pause→play of
           // the same song, and not position rewinds -- those reuse the same
@@ -1919,6 +2025,8 @@ function runApp() {
       'DONDA': 'donda', 'STARS': 'stars',
       'GLITCH': 'glitch', 'ZEN': 'zen',
       'PEASCHICKENTREE': 'peaschickentree',
+      'GOODMORNING': 'goodmorning', 'BEAR': 'bear',
+      'POWER': 'power', 'PABLO': 'pablo',
     };
     if (EGG_CODES[trimmed.toUpperCase()]) {
       return { ok: false, reason: 'easter_egg', egg: EGG_CODES[trimmed.toUpperCase()] };

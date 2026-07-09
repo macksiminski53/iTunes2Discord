@@ -4,7 +4,7 @@ Shows what you're playing in iTunes or Apple Music as your Discord status —
 e.g. **"Listening to MusicToDiscord — Blinding Lights by The Weeknd"** with
 a live countdown timer.
 
-![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+![platform](https://img.shields.io/badge/platform-Windows-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
 ---
 
@@ -34,45 +34,16 @@ to front instead of doing nothing.
 - Either classic iTunes or the Apple Music app installed
 - Discord desktop app (not the browser version)
 
-### macOS
-
-1. Go to the [Releases page](../../releases) and download the latest
-   `MusicToDiscord-x.x.x.dmg`.
-2. Open the `.dmg` and drag **MusicToDiscord** into your Applications folder.
-3. **First launch only — Gatekeeper warning:** macOS will say the app is
-   "damaged" or can't be opened because it isn't from an identified developer.
-   This is expected for unsigned apps. To get past it, either:
-   - **Right-click** (or Control-click) the app → click **Open** → click
-     **Open** again on the popup, or
-   - Open Terminal and run:
-     ```
-     xattr -cr /Applications/MusicToDiscord.app
-     ```
-     Then double-click the app normally.
-4. The first time it queries Music, macOS will ask for permission to control
-   the Music app — click **OK**. This is required for the app to see what's
-   playing.
-5. Make sure the **Discord desktop app** (not browser) is open and you're
-   logged in.
-6. Play something in Music — your Discord status updates within ~15 seconds.
-
-**Requirements:**
-- macOS 10.15 Catalina or later
-- Apple Music (or legacy iTunes on older macOS)
-- Discord desktop app (not the browser version)
-
 ---
 
 ## How it works
 
-- On **Windows**, a bundled PowerShell script first queries iTunes' built-in
-  COM automation interface for the current track. If iTunes isn't running, it
-  falls back to a second script that reads Windows' System Media Transport
-  Controls (SMTC) instead — this covers the Apple Music app, since it has no
-  automation interface of its own. Neither script ever launches an app that
-  isn't already open.
-- On **macOS**, a bundled AppleScript queries the Music app directly. It
-  checks the process list first and does nothing if Music isn't already open.
+- A bundled PowerShell script first queries iTunes' built-in COM automation
+  interface for the current track. If iTunes isn't running, it falls back to
+  a compiled helper that reads Windows' System Media Transport Controls
+  (SMTC) instead — this covers the Apple Music app, since it has no
+  automation interface of its own. Neither ever launches an app that isn't
+  already open.
 - The app polls every few seconds and forwards the track info to Discord via
   Discord's local Rich Presence (RPC) connection — the same mechanism Spotify
   and games use.
@@ -96,7 +67,7 @@ npm start
 
 ### Releasing a new version (maintainer only)
 
-GitHub Actions auto-builds and publishes both the Windows and macOS installers:
+GitHub Actions auto-builds and publishes the Windows installer:
 
 1. Bump the version in `package.json` (e.g. `1.6.0`).
 2. Commit, then tag and push:
@@ -106,10 +77,9 @@ GitHub Actions auto-builds and publishes both the Windows and macOS installers:
    git tag v1.6.0
    git push origin main --tags
    ```
-3. GitHub Actions spins up a `windows-latest` runner for the `.exe` and a
-   `macos-latest` runner for the `.dmg`, builds both installers, and publishes
-   them to the Releases page automatically. Existing installs will offer the
-   update to users via `electron-updater` within a few hours.
+3. GitHub Actions spins up a `windows-latest` runner, builds the `.exe`, and
+   publishes it to the Releases page automatically. Existing installs will
+   offer the update to users via `electron-updater` within a few hours.
 
 No `GH_TOKEN` setup needed — GitHub Actions provides one automatically with
 the right permissions for the same repo.
@@ -120,11 +90,6 @@ the right permissions for the same repo.
 
 - **SmartScreen blocks the installer (Windows)** — expected for unsigned apps;
   click "More info → Run anyway."
-- **"Damaged" warning on macOS** — see the macOS install steps above; run
-  `xattr -cr /Applications/MusicToDiscord.app` in Terminal to fix it.
-- **Music permission denied on macOS** — go to **System Settings → Privacy &
-  Security → Automation** and make sure MusicToDiscord has permission to
-  control Music.
 - **Tray says "Not connected to Discord"** — open the Discord desktop app
   and log in.
 - **Status never updates** — make sure either iTunes or Apple Music is
