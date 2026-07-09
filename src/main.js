@@ -1312,48 +1312,6 @@ function runApp() {
     });
   }
 
-  // Returns the mood for a track based on genre + keyword matching.
-  // Returns one of: 'hype' | 'chill' | 'sad' | 'happy' | 'dark' | 'romantic'
-  function detectMood(trackName, artistName) {
-    const name = (trackName || '').toLowerCase();
-    const artist = (artistName || '').toLowerCase();
-    const combined = name + ' ' + artist;
-    const cacheKey = trackName + '||' + artistName;
-    const genre = (itunesGenreCache.get(cacheKey) || '').toLowerCase();
-
-    // Keyword lists
-    const SAD_WORDS = ['sad','cry','crying','tears','pain','hurt','heartbreak','alone','miss','lost','broken','gone','leave','left','death','die','died','goodbye','sorry','regret','empty','cold','dark','ghost','numb','scar','wound'];
-    const DARK_WORDS = ['devil','demon','evil','hell','blood','kill','murder','die','death','dark','shadow','black','monster','war','rage','hate','666','satan'];
-    const ROMANTIC_WORDS = ['love','heart','baby','girl','boy','kiss','forever','together','marry','wedding','romance','beautiful','darling','honey','sweetheart','valentine'];
-    const HYPE_WORDS = ['fire','lit','banger','turn up','hype','flex','drip','goat','gang','trap','grind','hustle','money','cash','rich','party','vibe','wave'];
-    const CHILL_WORDS = ['chill','relax','dream','float','soft','slow','gentle','peace','quiet','smooth','night','stars','moon','rain','sleep','lofi','lo-fi'];
-
-    const hasWord = (words) => words.some(w => combined.includes(w));
-
-    // Genre-based detection first (more reliable)
-    if (genre.includes('hip-hop') || genre.includes('hip hop') || genre.includes('rap') || genre.includes('trap')) return 'hype';
-    if (genre.includes('r&b') || genre.includes('soul') || genre.includes('neo soul')) return 'chill';
-    if (genre.includes('pop') && !hasWord(SAD_WORDS)) return 'happy';
-    if (genre.includes('electronic') || genre.includes('dance') || genre.includes('edm')) return 'hype';
-    if (genre.includes('country') || genre.includes('folk') || genre.includes('acoustic')) return 'chill';
-    if (genre.includes('classical') || genre.includes('jazz')) return 'chill';
-    if (genre.includes('metal') || genre.includes('rock') || genre.includes('punk')) return 'dark';
-    if (genre.includes('gospel') || genre.includes('christian')) return 'happy';
-
-    // Keyword fallback
-    if (hasWord(DARK_WORDS)) return 'dark';
-    if (hasWord(SAD_WORDS)) return 'sad';
-    if (hasWord(ROMANTIC_WORDS)) return 'romantic';
-    if (hasWord(HYPE_WORDS)) return 'hype';
-    if (hasWord(CHILL_WORDS)) return 'chill';
-
-    return null; // unknown — don't change theme
-  }
-
-  // IPC so renderer can get the current mood
-  let currentMood = null;
-  ipcMain.handle('get-mood', () => currentMood);
-
   // ---- Discord RPC ----
   async function connectDiscord() {
     if (connected) return;
@@ -1696,13 +1654,6 @@ function runApp() {
               if (mainWindow && !mainWindow.isDestroyed()) pushStateUpdate(track);
               // Re-push presence with the real artwork URL now that it's ready
               setPresence(track).catch(() => {});
-            }
-            // Detect mood now that genre is cached from iTunes
-            const mood = detectMood(track.name, track.artist);
-            if (mood && mood !== currentMood) {
-              currentMood = mood;
-              if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('mood-changed', mood);
-              log.info('Mood detected:', mood, 'for', track.name);
             }
             postNowPlayingEmbed(track, url, ARTWORK_BOT_TOKEN, ARTWORK_CHANNEL_ID).catch(() => {});
           }).catch(() => {});

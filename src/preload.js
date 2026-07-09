@@ -60,8 +60,6 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   getRecommendations: () => ipcRenderer.invoke('get-recommendations'),
   getMostSkipped: () => ipcRenderer.invoke('get-most-skipped'),
   getPersonality: () => ipcRenderer.invoke('get-personality'),
-  getMood: () => ipcRenderer.invoke('get-mood'),
-  onMoodChanged: (cb) => ipcRenderer.on('mood-changed', (_e, mood) => cb(mood)),
 
   // Shareable card
   getShareCard: () => ipcRenderer.invoke('get-share-card'),

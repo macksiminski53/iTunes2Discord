@@ -47,17 +47,6 @@
     --bg: var(--dyn-bg, #0F0F14);
     --bg-raised: var(--dyn-bg-raised, #17171F);
   }
-  /* Mood theme: persists across songs until mood changes, lower priority
-     than dynamic-theme (artwork color) so both can coexist. */
-  body.mood-theme:not(.dynamic-theme):not(.owner-mode) {
-    --bg: var(--mood-bg, #0F0F14);
-    --bg-raised: color-mix(in srgb, var(--mood-bg, #0F0F14) 80%, white);
-  }
-  body.mood-theme:not(.owner-mode) {
-    --accent: var(--mood-accent, #7C5CBF);
-    --indigo: var(--mood-accent, #7C5CBF);
-    --sky: var(--mood-accent, #7C5CBF);
-  }
   html, body, #hero, .wrapped-card, .lb-row, .pill-btn, .tab-btn {
     transition: background-color 0.6s ease, border-color 0.6s ease;
   }

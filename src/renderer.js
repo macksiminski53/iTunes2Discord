@@ -3036,48 +3036,6 @@ function petSound(clip) {
 // Play a mood sound whenever main.js fires pet-sound (fed, party, clean, etc.)
 window.musicToDiscord.onPetSound((clip) => petSound(clip));
 
-// ---- Mood-based theme system ----
-const MOOD_THEMES = {
-  hype:     { accent: '#FF4B1F', bg: '#1a0a06', label: '🔥 Hype mode',    vibe: 'vibe-hiphop' },
-  chill:    { accent: '#7C5CBF', bg: '#0e0b18', label: '💜 Chill vibes',  vibe: 'vibe-rbsoul' },
-  sad:      { accent: '#3A6EA5', bg: '#080e18', label: '🌧 Sad hours',    vibe: 'vibe-classical' },
-  happy:    { accent: '#F7C948', bg: '#181208', label: '✨ Good vibes',   vibe: 'vibe-pop' },
-  dark:     { accent: '#3DFF72', bg: '#060e07', label: '🌑 Dark mode',    vibe: 'vibe-rock' },
-  romantic: { accent: '#FF6B9D', bg: '#180810', label: '💕 Romantic',     vibe: 'vibe-jazz' },
-};
-
-let currentMoodTheme = null;
-
-function applyMoodTheme(mood) {
-  const theme = MOOD_THEMES[mood];
-  if (!theme) return;
-  if (currentMoodTheme === mood) return;
-  currentMoodTheme = mood;
-  const root = document.documentElement;
-  root.style.setProperty('--mood-accent', theme.accent);
-  root.style.setProperty('--mood-bg', theme.bg);
-  document.body.classList.add('mood-theme');
-  // Apply matching instrument vibe for Markus (only if he's not already vibing to real genre)
-  if (theme.vibe && !document.body.classList.contains('pet-vibing')) {
-    const vibeClasses = ['vibe-hiphop','vibe-rock','vibe-pop','vibe-rbsoul','vibe-electronic','vibe-jazz','vibe-classical','vibe-country'];
-    document.body.classList.remove(...vibeClasses);
-    document.body.classList.add('pet-vibing', theme.vibe);
-  }
-  eggToast(theme.label, 2000);
-}
-
-function clearMoodTheme() {
-  currentMoodTheme = null;
-  document.body.classList.remove('mood-theme');
-  document.documentElement.style.removeProperty('--mood-accent');
-  document.documentElement.style.removeProperty('--mood-bg');
-}
-
-window.musicToDiscord.onMoodChanged((mood) => applyMoodTheme(mood));
-
-// Apply mood on load in case a song is already playing
-window.musicToDiscord.getMood().then((mood) => { if (mood) applyMoodTheme(mood); }).catch(() => {});
-
 // Play a mood-based greeting when user opens the pet tab
 const _origSwitchTab = window._switchTab;
 document.querySelectorAll('[data-tab]').forEach(btn => {
