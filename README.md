@@ -1,7 +1,7 @@
 # MusicToDiscord
 
 Shows what you're playing in iTunes or Apple Music as your Discord status —
-e.g. **"Listening to MusicToDiscord — Blinding Lights by The Weeknd"** with
+e.g. **"Listening to MusicToDiscord — KING By Kanye West"** with
 a live countdown timer.
 
 ![platform](https://img.shields.io/badge/platform-Windows-blue) ![license](https://img.shields.io/badge/license-MIT-green)
