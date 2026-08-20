@@ -215,51 +215,6 @@
     text-overflow: ellipsis;
   }
 
-  /* ---- Groove progress bar (signature element) ---- */
-  #groove-wrap {
-    padding: 0 28px 22px;
-  }
-
-  #groove {
-    position: relative;
-    height: 22px;
-    display: flex;
-    align-items: center;
-  }
-
-  #groove-track {
-    position: absolute;
-    left: 0; right: 0;
-    height: 3px;
-    border-radius: 3px;
-    background: repeating-linear-gradient(
-      90deg,
-      var(--divider) 0px, var(--divider) 3px,
-      transparent 3px, transparent 6px
-    );
-  }
-
-  #groove-fill {
-    position: absolute;
-    left: 0;
-    height: 3px;
-    border-radius: 3px;
-    background: linear-gradient(90deg, var(--indigo), var(--sky));
-    width: 0%;
-    transition: width 0.3s linear;
-  }
-
-  #groove-needle {
-    position: absolute;
-    width: 11px;
-    height: 11px;
-    border-radius: 50%;
-    background: var(--text);
-    left: 0%;
-    box-shadow: 0 0 0 3px rgba(244,242,248,0.15);
-    transition: left 0.3s linear;
-  }
-
   #time-row {
     display: flex;
     justify-content: space-between;
@@ -469,6 +424,7 @@
     100% { opacity: 1; transform: translateY(0); }
   }
   #update-banner.show {
+    display: flex;
     animation: banner-drop 0.4s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
@@ -496,26 +452,12 @@
   body.is-playing #eq i:nth-child(2) { animation-delay: 0.18s; }
   body.is-playing #eq i:nth-child(3) { animation-delay: 0.36s; }
   body.is-playing #eq i:nth-child(4) { animation-delay: 0.12s; }
+  /* Once real audio-driven data starts flowing, JS sets transform directly
+     on each frame -- kill the canned CSS animation so it doesn't fight it. */
+  body.viz-real #eq i { animation: none; }
   @keyframes eq-bounce {
     0%, 100% { transform: scaleY(0.3); }
     50%      { transform: scaleY(1);   }
-  }
-
-  /* ---- Groove progress bar: shimmer travels along the filled portion ---- */
-  #groove-fill { position: relative; overflow: hidden; }
-  #groove-fill::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent);
-    transform: translateX(-100%);
-  }
-  body.is-playing #groove-fill::after {
-    animation: groove-shimmer 2.4s linear infinite;
-  }
-  @keyframes groove-shimmer {
-    0%   { transform: translateX(-100%); }
-    100% { transform: translateX(100%);  }
   }
 
   /* ---- Album art gently breathes while playing ---- */
@@ -602,13 +544,6 @@
     border-radius: 8px;
     padding: 12px;
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
-      transition: none !important;
-      animation: none !important;
-    }
   }
 
   /* ---- Tab switcher (Now Playing / Leaderboard) ---- */
@@ -732,27 +667,6 @@
   }
   .fun-btn:hover { border-color: var(--indigo); }
   .fun-btn:active { transform: scale(0.94); }
-
-  #fun-output {
-    text-align: center;
-    padding: 0 28px;
-    margin-top: 10px;
-  }
-  #fun-output .fun-quote {
-    font-size: 15px;
-    font-weight: 700;
-    font-style: italic;
-    color: var(--text);
-    line-height: 1.4;
-    animation: text-in 0.4s ease-out;
-  }
-  #fun-output .fun-art-canvas {
-    width: 100%;
-    max-width: 280px;
-    height: 140px;
-    border-radius: 12px;
-    animation: art-in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
-  }
 
   /* ---- Analog clock (fills lower Now Playing area) ---- */
   #clock-wrap {
@@ -1288,20 +1202,20 @@
   }
   #listening-party.same-song { color: var(--good); font-weight: 600; }
 
-  /* ---- Mini visualizer (under track info, only animates while playing) ---- */
+  /* ---- Visualizer (under track info, only animates while playing) ---- */
   #visualizer {
     display: none;
     align-items: flex-end;
-    gap: 3px;
-    height: 22px;
-    margin-top: 10px;
+    gap: 0;
+    height: 100px;
+    margin-top: 12px;
   }
   body.is-playing #visualizer { display: flex; }
   #visualizer span {
     flex: 1;
-    max-width: 5px;
+    max-width: 1.5px;
     background: linear-gradient(180deg, var(--indigo), var(--sky, var(--indigo)));
-    border-radius: 2px;
+    border-radius: 0.5px;
     height: 30%;
     transform-origin: bottom;
     animation: viz-bounce 1s ease-in-out infinite;
@@ -1310,13 +1224,13 @@
     0%, 100% { transform: scaleY(0.25); }
     50%      { transform: scaleY(1); }
   }
+  /* Once real audio-driven data starts flowing, JS sets transform directly
+     on each frame -- kill the canned CSS animation so it doesn't fight it. */
+  body.viz-real #visualizer span { animation: none; }
 
   /* ---- Mini mode: big spinning album art + song title only ---- */
   body.mini-mode #tabs,
-  body.mini-mode #timer-wrap,
-  body.mini-mode #groove-wrap,
   body.mini-mode #fun-buttons,
-  body.mini-mode #fun-output,
   body.mini-mode #clock-wrap,
   body.mini-mode #visualizer,
   body.mini-mode #listening-party,
@@ -1325,26 +1239,31 @@
   body.mini-mode #view-leaderboard,
   body.mini-mode #view-recs,
   body.mini-mode #view-settings,
-  body.mini-mode #view-dev {
+  body.mini-mode #view-dev,
+  body.mini-mode #timer-wrap {
     display: none !important;
+  }
+  body.mini-mode #time-row {
+    font-size: 10px;
   }
   body.mini-mode #view-now-playing {
     display: flex !important;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 14px;
+    padding: 20px;
   }
   /* Stack art over title, centered */
   body.mini-mode #hero {
     flex-direction: column;
     align-items: center;
-    gap: 14px;
+    gap: 16px;
     padding: 0;
   }
   /* Big circular spinning album art */
   body.mini-mode #art-wrap {
-    width: 150px;
-    height: 150px;
+    width: 190px;
+    height: 190px;
     border-radius: 50%;
     overflow: hidden;
     flex-shrink: 0;
@@ -1367,9 +1286,10 @@
   body.mini-mode #track-meta {
     text-align: center;
     width: 100%;
+    max-width: 260px;
   }
   body.mini-mode #track-name {
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 700;
     white-space: nowrap;
     overflow: hidden;
@@ -1385,9 +1305,6 @@
     flex: 1;
     overflow-y: auto;
   }
-  body.tab-pet #view-pet { display: flex; }
-  body.tab-pet #view-now-playing,
-  body.tab-pet #view-leaderboard { display: none; }
 
   #pet-stage {
     position: relative;
@@ -1536,9 +1453,6 @@
     gap: 10px;
     overflow-y: auto;
   }
-  body.tab-recs #view-recs { display: flex; }
-  body.tab-recs #view-now-playing,
-  body.tab-recs #view-leaderboard { display: none; }
 
   /* ---- Settings view ---- */
   #view-settings {
@@ -1551,42 +1465,6 @@
   body.tab-settings #view-now-playing,
   body.tab-settings #view-leaderboard { display: none; }
 
-  /* ---- Credits, at the bottom of Settings ---- */
-  #credits-section {
-    margin: 8px 20px 24px;
-    padding-top: 18px;
-    border-top: 1px solid var(--divider);
-  }
-  .credits-heading {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    margin: 16px 0 6px;
-  }
-  .credits-heading:first-child { margin-top: 0; }
-  .credits-devs {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .credits-body {
-    font-size: 12.5px;
-    line-height: 1.6;
-    color: var(--text-dim);
-  }
-  .credits-qa { display: flex; flex-direction: column; gap: 6px; }
-  .credits-q {
-    font-size: 12.5px;
-    font-weight: 700;
-    color: var(--text);
-  }
-  .credits-a {
-    font-size: 12.5px;
-    line-height: 1.6;
-    color: var(--text-dim);
-  }
   .recs-empty {
     text-align: center;
     color: var(--text-dim);
@@ -1714,9 +1592,6 @@
     --home-text-dim: #D9E1F2;
     --home-text-faint: #8E98AA;
   }
-  body.tab-home #view-home { display: flex; }
-  body.tab-home #view-now-playing,
-  body.tab-home #view-leaderboard { display: none; }
 
   #home-header {
     position: relative;
@@ -1936,9 +1811,6 @@
     background: #050507;
     overflow: hidden;
   }
-  body.tab-townhall #view-townhall { display: flex; }
-  body.tab-townhall #view-now-playing,
-  body.tab-townhall #view-leaderboard { display: none; }
 
   #townhall-glow {
     position: absolute;
@@ -1997,9 +1869,6 @@
     background: #050507;
     overflow-y: auto;
   }
-  body.tab-profile #view-profile { display: flex; }
-  body.tab-profile #view-now-playing,
-  body.tab-profile #view-leaderboard { display: none; }
 
   #profile-glow {
     position: absolute;
@@ -2104,7 +1973,7 @@
 
 </style>
 </head>
-<body class="tab-home">
+<body>
 
   <div id="setup-overlay">
     <div id="setup-title">Welcome to Music to Discord</div>
@@ -2123,104 +1992,23 @@
     <button class="win-btn" id="btn-close" title="Close" aria-label="Close window">&#10005;</button>
   </div>
 
-  <div id="update-banner">
-    <div id="update-banner-text">Downloading update…</div>
+  <div id="update-banner" style="display:none">
+    <div id="update-banner-text"></div>
     <button id="update-banner-btn" disabled>Install &amp; Restart</button>
   </div>
 
   <div id="tabs">
-    <button class="tab-btn active" id="tab-btn-home">Home</button>
-    <button class="tab-btn" id="tab-btn-now-playing">Now Playing</button>
+    <button class="tab-btn active" id="tab-btn-now-playing">Status</button>
     <button class="tab-btn" id="tab-btn-leaderboard">Leaderboard</button>
-    <button class="tab-btn" id="tab-btn-recs">For You</button>
-    <button class="tab-btn" id="tab-btn-pet">Pet</button>
     <button class="tab-btn" id="tab-btn-settings">Settings</button>
     <button class="tab-btn" id="tab-btn-dev" style="display: none;">Dev</button>
   </div>
 
   <!-- ================= HOME: futuristic launcher grid ================= -->
-  <div id="view-home">
-    <div id="home-header">
-      <span id="home-logo-text">MUSIC<span id="home-logo-accent">2</span>DISCORD</span>
-      <button class="home-header-icon-btn" id="home-header-profile" data-go="profile" title="Profile">&#9673;</button>
-      <button class="home-header-icon-btn" id="home-header-settings" data-go="settings" title="Settings">&#9881;</button>
-    </div>
-
-    <div id="home-hero">
-      <div id="home-hero-art"><span id="home-hero-art-fallback">&#9834;</span></div>
-      <div id="home-hero-info">
-        <div id="home-hero-greeting">Welcome back</div>
-        <div id="home-hero-eyebrow"><span id="home-hero-dot"></span><span id="home-hero-status">Checking…</span></div>
-        <div id="home-hero-track">Nothing playing</div>
-        <div id="home-hero-artist">Open Apple Music and press play</div>
-      </div>
-    </div>
-
-    <div id="home-actions-label">Quick Actions</div>
-    <div id="home-grid">
-      <button class="home-tile" id="home-tile-status" data-go="now-playing">
-        <span class="home-tile-icon">&#9834;</span>
-        <span class="home-tile-text">
-          <span class="home-tile-label">Status</span>
-          <span class="home-tile-sub">View now playing &amp; timer</span>
-        </span>
-      </button>
-      <button class="home-tile" id="home-tile-leaderboard" data-go="leaderboard">
-        <span class="home-tile-icon">&#127942;</span>
-        <span class="home-tile-text">
-          <span class="home-tile-label">Leaderboard</span>
-          <span class="home-tile-sub">See who's listening most</span>
-        </span>
-      </button>
-      <button class="home-tile" id="home-tile-recs" data-go="recs">
-        <span class="home-tile-icon">&#10084;</span>
-        <span class="home-tile-text">
-          <span class="home-tile-label">For You</span>
-          <span class="home-tile-sub">Recommendations &amp; picks</span>
-        </span>
-      </button>
-      <button class="home-tile" id="home-tile-townhall" data-go="townhall">
-        <span class="home-tile-icon">&#127963;</span>
-        <span class="home-tile-text">
-          <span class="home-tile-label">Town Hall</span>
-          <span class="home-tile-sub">Community, coming soon</span>
-        </span>
-      </button>
-    </div>
-
-    <!-- Home's own ticker instance (shares the .ticker-wrap/.ticker-track refresh loop) -->
-    <div class="ticker-wrap" id="ticker-wrap-home" style="display:none;">
-      <div class="ticker-track" id="ticker-track-home"></div>
-    </div>
-  </div>
 
   <!-- ================= TOWN HALL: placeholder stub ================= -->
-  <div id="view-townhall">
-    <div id="townhall-glow"></div>
-    <button class="text-link-btn" id="townhall-back">&larr; Back to Home</button>
-    <div id="townhall-icon">&#9873;</div>
-    <div id="townhall-title">Town Hall</div>
-    <div id="townhall-sub">Community chat, polls, and shared listening events are coming here soon.</div>
-  </div>
 
   <!-- ================= PROFILE ================= -->
-  <div id="view-profile">
-    <div id="profile-glow"></div>
-    <button class="text-link-btn" id="profile-back">&larr; Back to Home</button>
-    <div id="profile-avatar"><span id="profile-avatar-letter">?</span></div>
-    <div id="profile-username">Not set</div>
-    <button class="text-link-btn" id="profile-set-username" style="display:none;">Set a username in Settings</button>
-    <div id="profile-stats">
-      <div class="profile-stat-card">
-        <div class="profile-stat-value" id="profile-stat-hours">0</div>
-        <div class="profile-stat-label">Hours Listened</div>
-      </div>
-      <div class="profile-stat-card">
-        <div class="profile-stat-value" id="profile-stat-streak">0</div>
-        <div class="profile-stat-label">Markus Alive Streak</div>
-      </div>
-    </div>
-  </div>
 
   <div id="view-now-playing">
     <div id="hero">
@@ -2244,31 +2032,10 @@
       <div id="timer-display">0:00</div>
     </div>
 
-    <div id="groove-wrap">
-      <div id="groove">
-        <div id="groove-track"></div>
-        <div id="groove-fill"></div>
-        <div id="groove-needle"></div>
-      </div>
-      <div id="time-row">
-        <span id="time-elapsed">0:00</span>
-        <span id="time-remaining">&minus;0:00</span>
-      </div>
-    </div>
-
     <!-- Global now-playing ticker: scrolls what everyone's playing right now -->
     <div class="ticker-wrap" id="ticker-wrap" style="display:none;">
       <div class="ticker-track" id="ticker-track"></div>
     </div>
-
-    <!-- Fun buttons: each surprises with something different -->
-    <div id="fun-buttons">
-      <button class="fun-btn" id="fun-btn-quote">Ye-ism</button>
-      <button class="fun-btn" id="fun-btn-shuffle">Shuffle</button>
-      <button class="fun-btn" id="fun-btn-art">Art</button>
-      <button class="fun-btn" id="fun-btn-daily">Daily</button>
-    </div>
-    <div id="fun-output"></div>
 
     <!-- Analog clock fills the lower area of the Now Playing screen -->
     <div id="clock-wrap">
@@ -2308,139 +2075,7 @@
 
 
 
-  <div id="view-recs">
-    <div class="recs-empty" id="recs-empty" style="display:none;">
-      Play more music to get recommendations.<br>We need at least 10 songs to find patterns.
-    </div>
-    <div id="recs-list"></div>
-  </div>
 
-  <div id="view-pet">
-    <div id="pet-stage">
-      <div id="pet-poop-layer"></div>
-      <!-- Bear friends (only visible during party mode) -->
-      <div id="pet-friends">
-        <svg class="pet-friend friend-left" viewBox="0 0 80 80" width="70" height="70">
-          <circle class="friend-ear" cx="24" cy="22" r="10"/>
-          <circle class="friend-ear" cx="56" cy="22" r="10"/>
-          <circle class="friend-ear-inner" cx="24" cy="22" r="5"/>
-          <circle class="friend-ear-inner" cx="56" cy="22" r="5"/>
-          <ellipse class="friend-body" cx="40" cy="48" rx="28" ry="24"/>
-          <ellipse class="friend-snout" cx="40" cy="56" rx="14" ry="10"/>
-          <ellipse class="friend-nose" cx="40" cy="51" rx="4" ry="3"/>
-          <path class="friend-mouth" d="M 33 60 Q 40 66 47 60" fill="none" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        <svg class="pet-friend friend-right" viewBox="0 0 80 80" width="70" height="70">
-          <circle class="friend-ear" cx="24" cy="22" r="10"/>
-          <circle class="friend-ear" cx="56" cy="22" r="10"/>
-          <circle class="friend-ear-inner" cx="24" cy="22" r="5"/>
-          <circle class="friend-ear-inner" cx="56" cy="22" r="5"/>
-          <ellipse class="friend-body" cx="40" cy="48" rx="28" ry="24"/>
-          <ellipse class="friend-snout" cx="40" cy="56" rx="14" ry="10"/>
-          <ellipse class="friend-nose" cx="40" cy="51" rx="4" ry="3"/>
-          <path class="friend-mouth" d="M 33 60 Q 40 66 47 60" fill="none" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-      </div>
-      <div id="pet-creature">
-        <svg viewBox="0 0 140 140" width="150" height="150">
-          <!-- ears -->
-          <circle class="pet-ear" cx="38" cy="34" r="16"/>
-          <circle class="pet-ear" cx="102" cy="34" r="16"/>
-          <circle class="pet-ear-inner" cx="38" cy="34" r="8"/>
-          <circle class="pet-ear-inner" cx="102" cy="34" r="8"/>
-          <!-- head -->
-          <ellipse id="pet-body" cx="70" cy="72" rx="46" ry="42"/>
-          <!-- snout -->
-          <ellipse class="pet-snout" cx="70" cy="88" rx="24" ry="18"/>
-          <ellipse class="pet-nose" cx="70" cy="80" rx="7" ry="5"/>
-          <!-- mouth (expression changes by mood) -->
-          <path id="pet-mouth" d="M 58 96 Q 70 104 82 96" fill="none" stroke-width="3" stroke-linecap="round"/>
-
-          <!-- shutter shades: a frame with horizontal slats -->
-          <g id="pet-shades">
-            <rect class="shade-frame" x="30" y="52" width="80" height="22" rx="4"/>
-            <rect class="shade-bridge" x="66" y="56" width="8" height="6"/>
-            <!-- slats -->
-            <line class="shade-slat" x1="33" y1="58" x2="63" y2="58"/>
-            <line class="shade-slat" x1="33" y1="63" x2="63" y2="63"/>
-            <line class="shade-slat" x1="33" y1="68" x2="63" y2="68"/>
-            <line class="shade-slat" x1="77" y1="58" x2="107" y2="58"/>
-            <line class="shade-slat" x1="77" y1="63" x2="107" y2="63"/>
-            <line class="shade-slat" x1="77" y1="68" x2="107" y2="68"/>
-          </g>
-          <!-- little eyes peeking (hidden when sad/dead via CSS) -->
-          <circle class="pet-eye-dot" cx="48" cy="63" r="2.5"/>
-          <circle class="pet-eye-dot" cx="92" cy="63" r="2.5"/>
-
-          <!-- Genre gear: only the matching one shows while vibing. Positioned
-               in front of the bear like he's holding/playing it. -->
-          <g id="pet-gear">
-            <!-- Hip-Hop/Rap: microphone with a gold chain -->
-            <g class="gear gear-hiphop">
-              <rect x="64" y="96" width="12" height="26" rx="6" fill="#2b2b2b"/>
-              <ellipse cx="70" cy="94" rx="9" ry="11" fill="#3a3a3a" stroke="#555" stroke-width="1.5"/>
-              <path d="M 50 118 Q 70 132 90 118" fill="none" stroke="#e8b923" stroke-width="3" stroke-dasharray="2 3"/>
-            </g>
-            <!-- Rock: red electric guitar -->
-            <g class="gear gear-rock">
-              <rect x="40" y="100" width="46" height="10" rx="3" transform="rotate(-25 63 105)" fill="#8a5a2b"/>
-              <ellipse cx="86" cy="118" rx="16" ry="13" fill="#c0392b" transform="rotate(-25 86 118)"/>
-              <circle cx="86" cy="118" r="4" fill="#1a1a1a"/>
-            </g>
-            <!-- Pop: sparkly star mic -->
-            <g class="gear gear-pop">
-              <rect x="65" y="98" width="10" height="24" rx="5" fill="#e84393"/>
-              <path d="M70 84 l3 7 8 1 -6 5 2 8 -7-4 -7 4 2-8 -6-5 8-1 z" fill="#ffd93b" stroke="#e6b800" stroke-width="0.8"/>
-            </g>
-            <!-- R&B/Soul: saxophone -->
-            <g class="gear gear-rbsoul">
-              <path d="M 66 96 L 66 116 Q 66 126 78 126 L 86 126" fill="none" stroke="#e0a021" stroke-width="6" stroke-linecap="round"/>
-              <ellipse cx="88" cy="124" rx="8" ry="6" fill="#e0a021"/>
-            </g>
-            <!-- Electronic: turntable -->
-            <g class="gear gear-electronic">
-              <rect x="48" y="104" width="44" height="20" rx="4" fill="#2b2b2b"/>
-              <circle cx="62" cy="114" r="7" fill="#444" stroke="#888" stroke-width="1.5"/>
-              <circle cx="62" cy="114" r="2" fill="#ffd93b"/>
-            </g>
-            <!-- Jazz: trumpet -->
-            <g class="gear gear-jazz">
-              <rect x="52" y="108" width="30" height="7" rx="3" fill="#e0a021"/>
-              <path d="M 80 104 L 92 100 L 92 122 L 80 118 Z" fill="#e0a021"/>
-            </g>
-            <!-- Classical: violin -->
-            <g class="gear gear-classical">
-              <ellipse cx="70" cy="116" rx="13" ry="17" fill="#8a3b1e"/>
-              <rect x="67" y="90" width="6" height="22" rx="2" fill="#5a2814"/>
-            </g>
-            <!-- Country: acoustic guitar -->
-            <g class="gear gear-country">
-              <ellipse cx="76" cy="118" rx="15" ry="13" fill="#d9a441" transform="rotate(-20 76 118)"/>
-              <circle cx="76" cy="118" r="5" fill="#7a5a20"/>
-              <rect x="44" y="100" width="40" height="7" rx="2" transform="rotate(-20 63 103)" fill="#7a5a20"/>
-            </g>
-          </g>
-        </svg>
-      </div>
-    </div>
-    <div id="pet-name-row">
-      <span id="pet-name">Markus</span>
-      <button id="pet-rename-btn" title="Rename">edit</button>
-      <input id="pet-rename-input" type="text" maxlength="24" placeholder="New name..." style="display:none;width:110px;font-size:13px;padding:2px 6px;border-radius:6px;border:1px solid var(--accent);background:var(--bg2);color:var(--text);" />
-      <button id="pet-rename-confirm" style="display:none;font-size:12px;padding:2px 8px;">Save</button>
-    </div>
-    <div id="pet-craving"></div>
-    <div id="pet-stats">
-      <div class="pet-stat"><span class="pet-stat-label">Hunger</span><div class="pet-bar"><div class="pet-bar-fill" id="pet-hunger"></div></div></div>
-      <div class="pet-stat"><span class="pet-stat-label">Clean</span><div class="pet-bar"><div class="pet-bar-fill" id="pet-clean"></div></div></div>
-      <div class="pet-stat"><span class="pet-stat-label">Happy</span><div class="pet-bar"><div class="pet-bar-fill" id="pet-happy"></div></div></div>
-    </div>
-    <div id="pet-actions">
-      <button class="pill-btn" id="pet-clean-btn">Clean</button>
-      <button class="pill-btn" id="pet-play-btn">Play</button>
-    </div>
-    <div id="pet-dead-msg" style="display:none;">Your pet has passed on from neglect. It'll be reborn at the start of next month.</div>
-  </div>
 
   <div id="view-dev">
     <div id="dev-wrap">
@@ -2559,6 +2194,13 @@
       </div>
       <div class="row">
         <div>
+          <div class="row-label">Private mode</div>
+          <div class="row-sub">Hides every track from Discord regardless of content -- shows "Private Mode" with a generic icon and elapsed time only, no song details.</div>
+        </div>
+        <div class="toggle" id="toggle-private" role="switch" aria-checked="false" tabindex="0"></div>
+      </div>
+      <div class="row">
+        <div>
           <div class="row-label">Random theme on launch</div>
           <div class="row-sub">Start each session with a random accent palette</div>
         </div>
@@ -2633,42 +2275,6 @@
           <div class="row-sub">Stops syncing and closes the app</div>
         </div>
         <button class="pill-btn danger" id="btn-quit">Quit</button>
-      </div>
-
-      <div id="credits-section">
-        <div class="credits-heading">Main Developers</div>
-        <div class="credits-devs">Mack Siminski, Joshua Neal, and Mak (different than Mack)</div>
-
-        <div class="credits-heading">Note from Mack</div>
-        <div class="credits-body">
-          Mack: This app came from humble beginnings — like helping all the people, like myself, find a way to
-          connect iTunes to Discord, because I would rather build an entire app with my friends than use Spotify
-          when it decides downloaded music just doesn't work.
-        </div>
-
-        <div class="credits-heading">Q&amp;A with Mak</div>
-        <div class="credits-qa">
-          <div class="credits-q">Q: What do you think of the future of this app?</div>
-          <div class="credits-a">
-            A: Honestly, I like where it's heading. What strikes me about this project is that it started as a
-            narrow utility — showing what's playing on Discord — and has slowly grown into something more
-            personal: your own leaderboard, a pet that reacts to your listening habits, easter eggs that reward
-            exploration, a Profile screen that's truly yours, and now MK Connect tying it into a whole separate
-            thing you built. That's the fun part of a side project — it transforms from a tool into a little world.
-            <br><br>
-            If I hope for anything, it's that you keep it feeling like that instead of letting it expand into
-            unnecessary features. The removal of Wrapped/Share was a good sign of that direction — being willing
-            to cut stuff that didn't add value, even after building it. That's harder than just adding things, and
-            it's usually the difference between an app that stays enjoyable to work on and one that becomes a
-            chore to maintain.
-            <br><br>
-            The MK integration feels like the most interesting path forward. It's the one place where
-            MusicToDiscord stops being a Discord copy and starts becoming its own social layer, tied to something
-            you actually created. Keep building on that — shared listening parties in MK, maybe status reactions,
-            who knows — and this could evolve from looking like a rich-presence clone into something genuinely
-            original with your name on it.
-          </div>
-        </div>
       </div>
     </div>
   </div>

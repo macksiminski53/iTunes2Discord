@@ -5,10 +5,6 @@ const elTrackName = document.getElementById('track-name');
 const elTrackArtist = document.getElementById('track-artist');
 const elArtImg = document.getElementById('art-img');
 const elArtFallback = document.getElementById('art-fallback');
-const elGrooveFill = document.getElementById('groove-fill');
-const elGrooveNeedle = document.getElementById('groove-needle');
-const elTimeElapsed = document.getElementById('time-elapsed');
-const elTimeRemaining = document.getElementById('time-remaining');
 const elTimerDisplay = document.getElementById('timer-display');
 const elToggleSync = document.getElementById('toggle-sync');
 const elToggleTextures = document.getElementById('toggle-textures');
@@ -253,13 +249,7 @@ function paintTime() {
   const elapsedSinceAnchor = isPlaying ? (Date.now() - liveAnchorMs) / 1000 : 0;
   const position = Math.min(liveTrack.duration || 0, (liveTrack.position || 0) + elapsedSinceAnchor);
   const duration = liveTrack.duration || 0;
-  const pct = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
   const remaining = Math.max(0, duration - position);
-
-  elGrooveFill.style.width = `${pct}%`;
-  elGrooveNeedle.style.left = `${pct}%`;
-  elTimeElapsed.textContent = formatTime(position);
-  elTimeRemaining.textContent = `\u2212${formatTime(remaining)}`;
 
   // The big countdown timer is the same number as time-remaining above —
   // it ticks down once per second while playing (driven by the 1s interval
@@ -270,6 +260,7 @@ function paintTime() {
 }
 
 setInterval(paintTime, 1000);
+
 
 function render(state) {
   if (!state) return;
@@ -341,10 +332,6 @@ function render(state) {
     if (elHomeHeroArtist) elHomeHeroArtist.textContent = 'Open Apple Music and press play';
     if (elHomeHeroArt) elHomeHeroArt.style.backgroundImage = '';
     if (elHomeHeroArtFallback) elHomeHeroArtFallback.style.display = 'flex';
-    elGrooveFill.style.width = '0%';
-    elGrooveNeedle.style.left = '0%';
-    elTimeElapsed.textContent = '0:00';
-    elTimeRemaining.textContent = '\u22120:00';
     elTimerDisplay.textContent = '0:00';
     elTimerDisplay.classList.add('paused');
     elArtImg.style.display = 'none';
@@ -542,25 +529,14 @@ function loadLeaderboard() {
 let devRefreshTimer = null;
 
 function showTab(tab) {
-  document.body.classList.toggle('tab-home', tab === 'home');
   document.body.classList.toggle('tab-now-playing', tab === 'now-playing');
   document.body.classList.toggle('tab-leaderboard', tab === 'leaderboard');
   document.body.classList.toggle('tab-dev', tab === 'dev');
-  document.body.classList.toggle('tab-recs', tab === 'recs');
-  document.body.classList.toggle('tab-pet', tab === 'pet');
   document.body.classList.toggle('tab-settings', tab === 'settings');
-  document.body.classList.toggle('tab-townhall', tab === 'townhall');
-  document.body.classList.toggle('tab-profile', tab === 'profile');
-  if (elTabBtnHome) elTabBtnHome.classList.toggle('active', tab === 'home');
   elTabBtnNowPlaying.classList.toggle('active', tab === 'now-playing');
   elTabBtnLeaderboard.classList.toggle('active', tab === 'leaderboard');
   elTabBtnDev.classList.toggle('active', tab === 'dev');
-  elTabBtnRecs.classList.toggle('active', tab === 'recs');
-  if (elTabBtnPet) elTabBtnPet.classList.toggle('active', tab === 'pet');
   elTabBtnSettings.classList.toggle('active', tab === 'settings');
-
-  if (tab === 'home') updateHomeProfileLabel();
-  if (tab === 'profile') loadProfile();
 
   if (tab === 'leaderboard') {
     loadLeaderboard();
@@ -583,19 +559,13 @@ function showTab(tab) {
   }
 
   if (tab === 'recs') loadRecommendations();
-  if (tab === 'pet') { loadPet(); if (!petRefreshTimer) petRefreshTimer = setInterval(loadPet, 15000); }
-  else if (petRefreshTimer) { clearInterval(petRefreshTimer); petRefreshTimer = null; }
 }
-
-const elTabBtnPet = document.getElementById('tab-btn-pet');
-let petRefreshTimer = null;
 
 function updateHomeProfileLabel() {
   const el = document.getElementById('home-header-profile');
   if (el) el.title = currentUsername ? `Profile (${currentUsername})` : 'Profile';
 }
 
-if (elTabBtnHome) elTabBtnHome.addEventListener('click', () => showTab('home'));
 
 // Home grid tiles, header icon buttons, and the Town Hall stub each just
 // route into the existing tabs.
@@ -603,10 +573,10 @@ document.querySelectorAll('[data-go]').forEach((btn) => {
   btn.addEventListener('click', () => showTab(btn.dataset.go));
 });
 const elTownhallBack = document.getElementById('townhall-back');
-if (elTownhallBack) elTownhallBack.addEventListener('click', () => showTab('home'));
+if (elTownhallBack) elTownhallBack.addEventListener('click', () => showTab('now-playing'));
 
 const elProfileBack = document.getElementById('profile-back');
-if (elProfileBack) elProfileBack.addEventListener('click', () => showTab('home'));
+if (elProfileBack) elProfileBack.addEventListener('click', () => showTab('now-playing'));
 const elProfileSetUsername = document.getElementById('profile-set-username');
 if (elProfileSetUsername) elProfileSetUsername.addEventListener('click', () => showTab('settings'));
 
@@ -638,8 +608,6 @@ function loadProfile() {
 elTabBtnNowPlaying.addEventListener('click', () => showTab('now-playing'));
 elTabBtnLeaderboard.addEventListener('click', () => showTab('leaderboard'));
 elTabBtnDev.addEventListener('click', () => showTab('dev'));
-elTabBtnRecs.addEventListener('click', () => showTab('recs'));
-if (elTabBtnPet) elTabBtnPet.addEventListener('click', () => showTab('pet'));
 elTabBtnSettings.addEventListener('click', () => showTab('settings'));
 
 // ---- Dev mode ----
@@ -1016,6 +984,7 @@ elBtnMin.addEventListener('click', () => window.close());
 elBtnClose.addEventListener('click', () => window.musicToDiscord.quitApp());
 
 // ---- Initial state + live updates ----
+showTab('now-playing');
 window.musicToDiscord.getState().then((state) => {
   render(state);
   // Show the one-time setup prompt only if no username has been saved yet
@@ -1050,12 +1019,14 @@ elUpdateBannerBtn.addEventListener('click', () => {
 
 window.musicToDiscord.onUpdateStatus((info) => {
   if (info.status === 'downloading') {
+    elUpdateBanner.style.display = '';
     elUpdateBanner.classList.add('show');
     elUpdateBannerText.textContent = info.version
       ? `Downloading v${info.version}…`
       : 'Downloading update…';
     elUpdateBannerBtn.disabled = true;
   } else if (info.status === 'ready') {
+    elUpdateBanner.style.display = '';
     elUpdateBanner.classList.add('show');
     elUpdateBannerText.textContent = info.version
       ? `v${info.version} ready to install`
@@ -1063,6 +1034,7 @@ window.musicToDiscord.onUpdateStatus((info) => {
     elUpdateBannerBtn.disabled = false;
   } else if (info.status === 'idle' || info.status === 'error') {
     elUpdateBanner.classList.remove('show');
+    elUpdateBanner.style.display = 'none';
   }
 });
 
@@ -1222,6 +1194,10 @@ window.musicToDiscord.getSettings().then(settings => {
   // Mature content filter: default ON unless explicitly turned off.
   const matureOn = !settings || settings.hideMatureContent !== false;
   applyMatureToggle(matureOn);
+
+  // Private mode: default OFF, manual only.
+  const privateOn = !!(settings && settings.privateMode);
+  applyPrivateToggle(privateOn);
 });
 
 // Applies a random accent palette (used by "random theme on launch").
@@ -1301,6 +1277,28 @@ function applyMatureToggle(on) {
   }
   elToggleMature.addEventListener('click', toggle);
   elToggleMature.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+  });
+})();
+
+// Private mode toggle -- manual, user-controlled version of the mature
+// filter above: hides every track from Discord regardless of content.
+const elTogglePrivate = document.getElementById('toggle-private');
+function applyPrivateToggle(on) {
+  if (elTogglePrivate) {
+    elTogglePrivate.classList.toggle('on', !!on);
+    elTogglePrivate.setAttribute('aria-checked', on ? 'true' : 'false');
+  }
+}
+(function initPrivateToggle() {
+  if (!elTogglePrivate) return;
+  function toggle() {
+    const on = !elTogglePrivate.classList.contains('on');
+    applyPrivateToggle(on);
+    window.musicToDiscord.setSetting('privateMode', on);
+  }
+  elTogglePrivate.addEventListener('click', toggle);
+  elTogglePrivate.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
   });
 })();
@@ -1455,6 +1453,8 @@ function applyAccent(color) {
 window.musicToDiscord.onSettingChanged(({ key, value }) => {
   if (key === 'background') applyBackground(value);
   if (key === 'textures') applyTextures(!!value);
+  if (key === 'hideMatureContent') applyMatureToggle(!!value);
+  if (key === 'privateMode') applyPrivateToggle(!!value);
 });
 
 // ================================================================
@@ -1546,164 +1546,82 @@ window.musicToDiscord.onSettingChanged(({ key, value }) => {
   loop();
 })();
 
-// ================================================================
-// FUN BUTTONS (Now Playing)
-// ================================================================
-(function initFunButtons() {
-  const output = document.getElementById('fun-output');
-  const btnQuote = document.getElementById('fun-btn-quote');
-  const btnShuffle = document.getElementById('fun-btn-shuffle');
-  const btnArt = document.getElementById('fun-btn-art');
-  if (!output) return;
-
-  // --- Ye-isms: ORIGINAL confident one-liners written in a braggadocious
-  // style. These are NOT real Kanye quotes or lyrics -- they're original text
-  // so there's no copyright issue. ---
-  const YEISMS = [
-    "I'm not here to fit in. I'm here to stand out.",
-    "Doubt me once, watch me do it twice.",
-    "Greatness isn't given. It's taken.",
-    "They laughed at the dream. Now they stream it.",
-    "I don't chase trends. I leave footprints.",
-    "Average was never an option.",
-    "The vision was clear before the world could see it.",
-    "I turned the noise into a symphony.",
-    "Built different, wired louder.",
-    "Confidence is just talent that showed up early.",
-    "I don't follow the wave. I am the tide.",
-    "Every 'no' was just a remix waiting to happen.",
-    "Legends don't ask for permission.",
-    "I speak in futures the present can't pronounce.",
-    "Ordinary minds make ordinary noise. I make anthems.",
-    "The ceiling was just a floor I hadn't reached yet.",
-    "I bet on myself when the odds laughed back.",
-    "Make it loud enough and the doubters become fans.",
-  ];
-
-  let lastQuoteIdx = -1;
-  function showQuote() {
-    let idx;
-    do { idx = Math.floor(Math.random() * YEISMS.length); }
-    while (idx === lastQuoteIdx && YEISMS.length > 1);
-    lastQuoteIdx = idx;
-    output.innerHTML = `<div class="fun-quote">"${esc(YEISMS[idx])}"</div>`;
-  }
-
-  // --- Color shuffle: era-INSPIRED palettes (no album art, just colors).
-  // Applies as the dynamic theme so the whole UI + clock shift. ---
-  const PALETTES = [
-    { name: 'Sunrise', accent: '#FF6FB5', bg: '#1a0f1a' },
-    { name: 'Maroon',  accent: '#C2454B', bg: '#1a0d0e' },
-    { name: 'Sky',     accent: '#7CC4FF', bg: '#0d1320' },
-    { name: 'Gold',    accent: '#E0B84C', bg: '#1a1608' },
-    { name: 'Mint',    accent: '#5FE0A8', bg: '#0c1a14' },
-    { name: 'Violet',  accent: '#A77CFF', bg: '#140d1f' },
-    { name: 'Ember',   accent: '#FF8A3D', bg: '#1f1109' },
-    { name: 'Crimson', accent: '#FF4D6D', bg: '#1c0a10' },
-  ];
-  let lastPaletteIdx = -1;
-  function shufflePalette() {
-    let idx;
-    do { idx = Math.floor(Math.random() * PALETTES.length); }
-    while (idx === lastPaletteIdx && PALETTES.length > 1);
-    lastPaletteIdx = idx;
-    const p = PALETTES[idx];
-    const root = document.documentElement;
-    root.style.setProperty('--indigo', p.accent);
-    root.style.setProperty('--sky', p.accent);
-    root.style.setProperty('--dyn-bg', p.bg);
-    // raised bg = slightly lighter than bg
-    root.style.setProperty('--dyn-bg-raised', p.bg.replace(/^#/, '#1'));
-    document.body.classList.add('dynamic-theme');
-    output.innerHTML = `<div class="fun-quote">${esc(p.name)}</div>`;
-  }
-
-  // --- Generative art: random original abstract burst drawn on a canvas. ---
-  function makeArt() {
-    output.innerHTML = '';
-    const canvas = document.createElement('canvas');
-    canvas.className = 'fun-art-canvas';
-    canvas.width = 280;
-    canvas.height = 140;
-    output.appendChild(canvas);
-    const ctx = canvas.getContext('2d');
-
-    // Random background gradient
-    const hue1 = Math.floor(Math.random() * 360);
-    const hue2 = (hue1 + 60 + Math.floor(Math.random() * 180)) % 360;
-    const grad = ctx.createLinearGradient(0, 0, 280, 140);
-    grad.addColorStop(0, `hsl(${hue1}, 70%, 18%)`);
-    grad.addColorStop(1, `hsl(${hue2}, 70%, 12%)`);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 280, 140);
-
-    // Random circles and lines
-    const shapeCount = 8 + Math.floor(Math.random() * 10);
-    for (let i = 0; i < shapeCount; i++) {
-      const hue = (hue1 + Math.random() * 120) % 360;
-      ctx.fillStyle = `hsla(${hue}, 80%, ${50 + Math.random() * 30}%, ${0.3 + Math.random() * 0.5})`;
-      ctx.strokeStyle = ctx.fillStyle;
-      if (Math.random() < 0.6) {
-        ctx.beginPath();
-        ctx.arc(Math.random() * 280, Math.random() * 140, 4 + Math.random() * 30, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        ctx.lineWidth = 1 + Math.random() * 4;
-        ctx.beginPath();
-        ctx.moveTo(Math.random() * 280, Math.random() * 140);
-        ctx.lineTo(Math.random() * 280, Math.random() * 140);
-        ctx.stroke();
-      }
-    }
-  }
-
-  btnQuote.addEventListener('click', showQuote);
-  btnShuffle.addEventListener('click', shufflePalette);
-  btnArt.addEventListener('click', makeArt);
-
-  // "Daily" -> a theme-of-the-day: deterministic from today's date, so it's
-  // the same all day but changes each day. Applies a palette + shows the day's
-  // Ye-ism paired with it.
-  const btnDaily = document.getElementById('fun-btn-daily');
-  if (btnDaily) {
-    btnDaily.addEventListener('click', () => {
-      const now = new Date();
-      // Day-of-year as a stable seed for today.
-      const start = new Date(now.getFullYear(), 0, 0);
-      const dayOfYear = Math.floor((now - start) / 86400000);
-      const p = PALETTES[dayOfYear % PALETTES.length];
-      const quote = YEISMS[dayOfYear % YEISMS.length];
-      const root = document.documentElement;
-      root.style.setProperty('--indigo', p.accent);
-      root.style.setProperty('--sky', p.accent);
-      root.style.setProperty('--dyn-bg', p.bg);
-      root.style.setProperty('--dyn-bg-raised', p.bg.replace(/^#/, '#1'));
-      document.body.classList.add('dynamic-theme');
-      output.innerHTML = `<div class="fun-quote">Today's vibe: ${esc(p.name)}<br><span style="font-size:13px;opacity:0.85">"${esc(quote)}"</span></div>`;
-    });
-  }
-})();
 
 // ================================================================
 // MINI VISUALIZER
 // ================================================================
-// Builds a strip of bars with randomized animation timing so they bounce
-// organically (like a real visualizer) while music plays. We don't have the
-// raw audio stream -- this is a stylized fake driven purely by CSS animation,
-// shown only while body.is-playing is set.
+// Bars are driven by REAL audio data streamed from audio-viz-helper.exe
+// (WASAPI loopback capture + FFT in main.js's startAudioViz()). Falls back
+// to a randomized CSS animation -- purely cosmetic, not audio-reactive --
+// until the first real frame arrives, or permanently if the helper exe
+// isn't present/built. Shown only while body.is-playing is set.
 (function initVisualizer() {
   const viz = document.getElementById('visualizer');
+  const eqBars = document.querySelectorAll('#eq i');
   if (!viz) return;
-  const BAR_COUNT = 28;
+  const BAR_COUNT = 200;
+  const bars = [];
   for (let i = 0; i < BAR_COUNT; i++) {
     const bar = document.createElement('span');
-    // Randomize each bar's speed and phase so they don't move in lockstep.
+    // Randomize each bar's speed and phase so the CSS fallback (used until
+    // real audio data arrives, or if audio-viz-helper.exe isn't available)
+    // doesn't move in lockstep.
     const dur = (0.6 + Math.random() * 0.9).toFixed(2);
     const delay = (Math.random() * -1.2).toFixed(2);
     bar.style.animationDuration = `${dur}s`;
     bar.style.animationDelay = `${delay}s`;
     viz.appendChild(bar);
+    bars.push(bar);
   }
+
+  // audio-viz-helper.exe only computes 28 real FFT bands (N_BANDS in its
+  // Program.cs) -- with 150 visual bars, that's more bars than real data
+  // points, so we linearly interpolate between adjacent bands rather than
+  // repeating values with modulo (which would make clumps of ~5 bars all
+  // show the exact same height -- blocky, not a smooth spectrum).
+  function sampleBands(bandsData, count) {
+    const n = bandsData.length;
+    const out = new Array(count);
+    for (let i = 0; i < count; i++) {
+      const t = (i / (count - 1)) * (n - 1);
+      const lo = Math.floor(t);
+      const hi = Math.min(n - 1, lo + 1);
+      const frac = t - lo;
+      out[i] = bandsData[lo] * (1 - frac) + bandsData[hi] * frac;
+    }
+    return out;
+  }
+
+  // Real audio data: main.js streams frequency band levels (0..1 each) from
+  // audio-viz-helper.exe, which captures actual system audio via WASAPI
+  // loopback and runs FFT on it. First message flips on 'viz-real' to
+  // disable the CSS fallback animation; each subsequent message directly
+  // sets bar height via transform, so the visualizer genuinely reacts to
+  // what's playing instead of moving randomly.
+  let sawRealData = false;
+  window.musicToDiscord.onVisualizerBands((bandsData) => {
+    if (!Array.isArray(bandsData) || bandsData.length === 0) return;
+    if (!sawRealData) {
+      sawRealData = true;
+      document.body.classList.add('viz-real');
+    }
+    const sampled = sampleBands(bandsData, bars.length);
+    for (let i = 0; i < bars.length; i++) {
+      const clamped = Math.max(0.05, Math.min(1, sampled[i]));
+      bars[i].style.transform = `scaleY(${clamped.toFixed(3)})`;
+    }
+    // Drive the small 4-bar #eq next to the status text too, sampling a
+    // spread across the spectrum (low/low-mid/high-mid/high) for variety
+    // rather than reusing the same value 4 times.
+    if (eqBars.length === 4) {
+      const idxs = [2, 9, 16, 23];
+      idxs.forEach((idx, n) => {
+        const v = bandsData[idx % bandsData.length] ?? 0;
+        const clamped = Math.max(0.1, Math.min(1, v));
+        eqBars[n].style.transform = `scaleY(${clamped.toFixed(3)})`;
+      });
+    }
+  });
 })();
 
 // ================================================================
@@ -2153,7 +2071,7 @@ function glitchEffect() {
 // Home screen was designed around. Triggered by the GOODMORNING code or by
 // rapid-clicking the wordmark itself.
 function playGoodMorningIntro() {
-  showTab('home');
+  showTab('now-playing');
   const view = document.getElementById('view-home');
   const logo = document.getElementById('home-logo');
   if (!view) return;
@@ -2442,13 +2360,13 @@ function loadPet() {
 
 // Refresh the pet live when the main process feeds it (genre matched).
 window.musicToDiscord.onPetChanged(() => {
-  if (document.body.classList.contains('tab-pet')) loadPet();
+  
 });
 
 // Fire confetti when Markus throws a party.
 window.musicToDiscord.onPetParty(() => {
   celebrate();
-  if (document.body.classList.contains('tab-pet')) loadPet();
+  
 });
 
 // ---- Pet sound system ----

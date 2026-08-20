@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   onStateUpdate: (callback) => {
     ipcRenderer.on('state-update', (_event, state) => callback(state));
   },
+  onVisualizerBands: (callback) => {
+    ipcRenderer.on('visualizer-bands', (_event, bands) => callback(bands));
+  },
 
   // Renderer-initiated actions
   togglePause: () => ipcRenderer.send('toggle-pause'),
@@ -60,6 +63,7 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
     ipcRenderer.on('update-status', (_event, info) => callback(info));
   },
   installUpdate: () => ipcRenderer.send('install-update'),
+  debugLog: (msg) => ipcRenderer.send('debug-log', msg),
 
   onLeaderboardChanged: (callback) => {
     ipcRenderer.on('leaderboard-changed', () => callback());

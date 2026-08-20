@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- Plain net8.0 (no -windows suffix) works fine here since NAudio's
+         WASAPI loopback capture doesn't need WinRT projections the way
+         smtc-helper's SMTC access does; it's a much older, simpler
+         Win32-level audio API that NAudio wraps directly. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>MusicToDiscord.AudioVizHelper</RootNamespace>
+    <AssemblyName>audio-viz-helper</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- NAudio wraps WASAPI loopback capture, which is what actually lets
+         us "hear" whatever Windows is currently outputting, regardless
+         of which app (Apple Music, a browser tab, anything) produced it.
+         This is fundamentally different from SMTC: SMTC only gives us
+         metadata (song name, position) that an app *chooses* to report.
+         Loopback capture gives us the literal audio samples being played,
+         which is what real FFT-driven visualization needs. -->
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+</Project>

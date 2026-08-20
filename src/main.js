@@ -70,7 +70,7 @@ function runApp() {
   //     always push immediately regardless of this floor, since those are
   //     one-off events, not repeated spam -- only the "same song, just
   //     refreshing position" case gets throttled.
-  const POLL_INTERVAL_MS = 3000;
+  const POLL_INTERVAL_MS = 1500;
   const DISCORD_PUSH_MIN_INTERVAL_MS = 15000;
   const APP_NAME = 'MusicToDiscord';
 
@@ -307,92 +307,8 @@ function runApp() {
     return MATURE_KEYWORDS.some(k => h.includes(k));
   }
   if (typeof appSettings.hideMatureContent === 'undefined') appSettings.hideMatureContent = true;
+  if (typeof appSettings.privateMode === 'undefined') appSettings.privateMode = false;
 
-  // ---- Music Pet ----
-  const petFile = path.join(app.getPath('userData'), 'pet.json');
-  function defPet() {
-    return { name:'Markus', bornMonth:getCurrentMonthKey(), hunger:80, cleanliness:100,
-      happiness:90, poop:0, alive:true, songRequest:null, lastUpdate:Date.now(),
-      listenedSecsSinceLastFeed:0, vibingGenre:null, vibingUntil:0 };
-  }
-  function loadPetData() {
-    try { if (fs.existsSync(petFile)) return Object.assign(defPet(), JSON.parse(fs.readFileSync(petFile,'utf8'))); }
-    catch(e){}
-    return defPet();
-  }
-  let pet = loadPetData();
-  function savePet() { try { fs.writeFileSync(petFile, JSON.stringify(pet), 'utf8'); } catch(e){} }
-  function updatePet() {
-    const now = Date.now();
-    if (pet.bornMonth !== getCurrentMonthKey()) {
-      const n = pet.name; pet = defPet(); pet.name = n; pet.bornMonth = getCurrentMonthKey(); savePet();
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet-sound', 'revival');
-      return;
-    }
-    if (!pet.alive) { pet.lastUpdate = now; return; }
-    const h = (now - pet.lastUpdate) / 3600000;
-    pet.hunger = Math.max(0, pet.hunger - h * 4);
-    pet.cleanliness = Math.max(0, pet.cleanliness - h * 3);
-    const np = Math.floor(h / 5);
-    if (np > 0) pet.poop = Math.min(5, pet.poop + np);
-    pet.happiness = Math.max(0, Math.min(100, (pet.hunger + pet.cleanliness) / 2 - pet.poop * 8));
-    if (pet.hunger <= 0 && pet.cleanliness <= 0) { pet.alive = false; pet.happiness = 0; }
-    pet.lastUpdate = now; savePet();
-  }
-  ipcMain.handle('get-pet', () => {
-    updatePet();
-    const v = pet.alive && pet.vibingUntil && Date.now() < pet.vibingUntil;
-    return Object.assign({}, pet, { isVibing: !!v, vibingGenre: v ? pet.vibingGenre : null });
-  });
-  ipcMain.handle('pet-clean', () => {
-    updatePet();
-    if (!pet.alive) return pet;
-    if (pet.poop > 0) { pet.poop--; }
-    pet.cleanliness = Math.min(100, pet.cleanliness + 25);
-    pet.happiness = Math.min(100, pet.happiness + 5);
-    savePet();
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet-sound', 'clean');
-    return pet;
-  });
-  ipcMain.handle('pet-play', () => {
-    updatePet();
-    if (!pet.alive) return pet;
-    pet.happiness = Math.min(100, pet.happiness + 8); savePet();
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet-sound', 'play');
-    return pet;
-  });
-  ipcMain.handle('get-pet-sound', () => {
-    if (!pet.alive) return 'dead';
-    if (pet.hunger <= 10) return 'starving';
-    if (pet.hunger <= 30 && pet.cleanliness <= 20) return 'sick';
-    if (pet.poop >= 3) return 'poop';
-    if (pet.cleanliness <= 25) return 'dirty';
-    if (pet.hunger <= 40) return 'hungry';
-    if (pet.songRequest) return 'request';
-    if (pet.happiness <= 30) return 'sad';
-    return 'happy';
-  });
-  ipcMain.handle('pet-rename', (_e, name) => {
-    updatePet();
-    const n = String(name || '').trim().slice(0, 20);
-    if (n) { pet.name = n; savePet(); }
-    return pet;
-  });
-
-  // ---- History / heatmap / export ----
-
-  ipcMain.handle('get-achievements', () => {
-    const stats = computeAchievementStats();
-    return {
-      stats,
-      badges: ACHIEVEMENTS.map(a => ({
-        id: a.id, emoji: a.emoji, title: a.title, desc: a.desc,
-        unlocked: unlockedAchievements.has(a.id),
-      })),
-      unlockedCount: ACHIEVEMENTS.filter(a => unlockedAchievements.has(a.id)).length,
-      total: ACHIEVEMENTS.length,
-    };
-  });
 
   ipcMain.handle('get-history', (_e, q) => {
     const query = (q || '').toLowerCase();
@@ -413,75 +329,19 @@ function runApp() {
     return { grid, max };
   });
 
-  // ---- Album art gallery ----
-  // Returns recently-played unique albums (name + artist), newest first, for
-  // a cover grid. Artwork URLs are fetched client-side via the iTunes lookup.
-  ipcMain.handle('get-recent-albums', () => {
-    const seen = new Set();
-    const albums = [];
-    for (let i = playHistory.length - 1; i >= 0 && albums.length < 24; i--) {
-      const e = playHistory[i];
-      const key = `${e.album || e.name}||${e.artist}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      albums.push({ name: e.name, artist: e.artist, album: e.album });
-    }
-    return albums;
-  });
-
-  // ---- Artist spotlight ----
-  // Returns the user's top artist over the last 7 days with a play count and
-  // their most-played song by that artist, for a rotating spotlight card.
-  ipcMain.handle('get-artist-spotlight', () => {
-    const weekAgo = Date.now() - 7 * 86400000;
-    const artistCounts = {};
-    const songByArtist = {};
-    for (const e of playHistory) {
-      if (e.timestamp < weekAgo) continue;
-      const a = e.artist || 'Unknown';
-      artistCounts[a] = (artistCounts[a] || 0) + 1;
-      if (!songByArtist[a]) songByArtist[a] = {};
-      const s = e.name || 'Unknown';
-      songByArtist[a][s] = (songByArtist[a][s] || 0) + 1;
-    }
-    const top = Object.entries(artistCounts).sort((a, b) => b[1] - a[1])[0];
-    if (!top) return null;
-    const [artist, count] = top;
-    const songs = songByArtist[artist] || {};
-    const topSong = Object.entries(songs).sort((a, b) => b[1] - a[1])[0];
-    return { artist, count, topSong: topSong ? topSong[0] : null };
-  });
-
-  // ---- Play-count goals ----
-  // For the current song (if any), returns how many times it's been played and
-  // how close it is to becoming the user's most-played song ever.
-  ipcMain.handle('get-play-count-goal', () => {
-    if (!currentSongTrack) return null;
-    const counts = {};
-    let maxCount = 0;
-    for (const e of playHistory) {
-      const k = `${e.name}||${e.artist}`;
-      counts[k] = (counts[k] || 0) + 1;
-      if (counts[k] > maxCount) maxCount = counts[k];
-    }
-    const curKey = `${currentSongTrack.name}||${currentSongTrack.artist}`;
-    const curCount = counts[curKey] || 0;
-    return {
-      song: currentSongTrack.name,
-      artist: currentSongTrack.artist,
-      count: curCount,
-      recordCount: maxCount,
-      toRecord: Math.max(0, maxCount - curCount + 1),
-    };
-  });
-
-
   ipcMain.handle('set-setting', (_event, key, value) => {
     appSettings[key] = value;
     saveSettings(appSettings);
     // Push to renderer so it can apply immediately
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('setting-changed', { key, value });
+    }
+    // Force the next poll to re-push to Discord even if the same song is
+    // still playing, so toggling Private Mode (or the mature filter) takes
+    // effect on the currently-playing track immediately instead of waiting
+    // for the next genuine track change.
+    if (key === 'privateMode' || key === 'hideMatureContent') {
+      lastTrackKey = null;
     }
     return true;
   });
@@ -925,6 +785,80 @@ function runApp() {
     return path.join(__dirname, '..', 'smtc-helper', 'publish', 'smtc-helper.exe');
   }
 
+  // ---- Audio visualizer (real, mic-free system audio capture) ----
+  // audio-viz-helper.exe is a PERSISTENT process (unlike smtc-helper, which
+  // is spawned fresh per poll and exits). It captures whatever Windows is
+  // currently outputting via WASAPI loopback and streams frequency band
+  // data continuously. We start it only while something is actually
+  // playing, and kill it otherwise -- no point burning CPU on FFT when
+  // there's nothing to visualize.
+  function getAudioVizHelperPath() {
+    if (app.isPackaged) {
+      return path.join(process.resourcesPath, 'audio-viz-helper', 'audio-viz-helper.exe');
+    }
+    return path.join(__dirname, '..', 'audio-viz-helper', 'publish', 'audio-viz-helper.exe');
+  }
+
+  let audioVizProc = null;
+  let audioVizWantedRunning = false; // tracks intent separately from actual process state
+
+  function startAudioViz() {
+    audioVizWantedRunning = true;
+    if (audioVizProc) return; // already running
+
+    const exePath = getAudioVizHelperPath();
+    if (!fs.existsSync(exePath)) {
+      // Helper not built/present -- fail silently, visualizer just stays
+      // in its idle/hidden state rather than crashing anything.
+      return;
+    }
+
+    const proc = spawn(exePath, []);
+    audioVizProc = proc;
+
+    const rl = require('readline').createInterface({ input: proc.stdout });
+    rl.on('line', (line) => {
+      if (!line.trim()) return;
+      try {
+        const data = JSON.parse(line);
+        if (Array.isArray(data.bands) && mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('visualizer-bands', data.bands);
+        }
+      } catch (e) {
+        // Malformed line -- skip it, next line will likely be fine.
+      }
+    });
+
+    let stderrBuf = '';
+    proc.stderr.on('data', (d) => { stderrBuf += d.toString(); });
+
+    proc.on('exit', (code) => {
+      if (stderrBuf.trim()) log.warn('audio-viz-helper stderr:', stderrBuf.trim());
+      audioVizProc = null;
+      // If we still want it running (e.g. it crashed mid-song rather than
+      // being deliberately stopped), retry after a short delay -- but only
+      // a few times in a row isn't tracked here for simplicity; a single
+      // retry covers the common transient case without risking a tight
+      // crash loop if the exe is just broken/missing a dependency.
+      if (audioVizWantedRunning) {
+        setTimeout(() => { if (audioVizWantedRunning) startAudioViz(); }, 3000);
+      }
+    });
+
+    proc.on('error', (err) => {
+      log.warn('Failed to spawn audio-viz-helper.exe:', err.message);
+      audioVizProc = null;
+    });
+  }
+
+  function stopAudioViz() {
+    audioVizWantedRunning = false;
+    if (audioVizProc) {
+      try { audioVizProc.kill(); } catch (e) {}
+      audioVizProc = null;
+    }
+  }
+
   function getCurrentTrackSMTC() {
     return new Promise((resolve) => {
       const exePath = getSmtcHelperPath();
@@ -1249,7 +1183,6 @@ function runApp() {
   // Used for the app window art, now-playing embed, and dynamic theme.
   // Works from song name + artist alone -- no local file needed.
   const itunesUrlCache = new Map();
-  const itunesGenreCache = new Map();
 
   function fetchiTunesArtworkUrl(trackName, artistName) {
     return new Promise((resolve) => {
@@ -1281,7 +1214,6 @@ function runApp() {
               const url = best.artworkUrl100 ? best.artworkUrl100.replace('100x100bb','500x500bb') : null;
               const genre = best.primaryGenreName || null;
               itunesUrlCache.set(cacheKey, url);
-              itunesGenreCache.set(cacheKey, genre);
               if (itunesUrlCache.size > 100) itunesUrlCache.delete(itunesUrlCache.keys().next().value);
               resolve(url);
             } catch(e) { resolve(null); }
@@ -1434,14 +1366,37 @@ function runApp() {
       await rpc.user.clearActivity().catch(() => {});
       return true;
     }
-    if (appSettings.hideMatureContent && isMatureContent(track)) {
-      try { await rpc.user.setActivity({ details: 'Listening privately', state: '\u200b', largeImageKey: 'app_logo', instance: false }); } catch(e) {}
-      return true;
-    }
 
     const now = Date.now();
     const startTimestamp = Math.floor(now - track.position * 1000);
     const endTimestamp = Math.floor(now + (track.duration - track.position) * 1000);
+
+    // Private Mode: a manual, user-controlled version of the mature-content
+    // filter below -- same placeholder mechanism, but triggered by a
+    // deliberate toggle rather than automatic keyword detection, for when
+    // someone just doesn't want ANY track shown on Discord regardless of
+    // content. Checked first since it's a broader override.
+    if (appSettings.privateMode) {
+      try {
+        const activity = {
+          details: 'Private Mode',
+          state: '\u200b',
+          largeImageKey: 'app_logo',
+          instance: false,
+        };
+        if (track.state === 'playing') {
+          activity.startTimestamp = startTimestamp;
+          activity.endTimestamp = endTimestamp;
+        }
+        await rpc.user.setActivity(activity);
+      } catch (e) { log.warn('setActivity (private mode) failed:', e.message); }
+      return true;
+    }
+
+    if (appSettings.hideMatureContent && isMatureContent(track)) {
+      try { await rpc.user.setActivity({ details: 'Listening privately', state: '\u200b', largeImageKey: 'app_logo', instance: false }); } catch(e) {}
+      return true;
+    }
 
     // Discord RPC via @xhayper/discord-rpc uses largeImageKey for everything --
     // external URLs go directly in largeImageKey, same as asset keys.
@@ -1513,8 +1468,12 @@ function runApp() {
           reportToMK(null);
           updateTrayTooltip(`${APP_NAME} — nothing playing`);
         }
+        stopAudioViz();
         pushStateUpdate(track);
       } else {
+        if (track.state === 'playing') startAudioViz();
+        else stopAudioViz(); // paused -- no audio actively outputting
+
         const key = `${track.name}|${track.artist}|${track.state}`;
 
         // Leaderboard: accumulate real elapsed wall-clock time since the
@@ -1598,32 +1557,6 @@ function runApp() {
             currentSongTrack = track;
             currentSongStartedAt = Date.now();
             recordPlay(track);
-            // If the song that just ended was Markus's requested song, party!
-            // Check BEFORE anything clears the request.
-            if (pet.alive && pet.songRequest && prevSongKey) {
-              const prevName = prevSongKey.split('|')[0].toLowerCase().trim();
-              const reqName = pet.songRequest.name.toLowerCase().trim();
-              log.info('Party check: prev=' + prevName + ' req=' + reqName);
-              if (prevName === reqName || prevName.includes(reqName) || reqName.includes(prevName)) {
-                pet.partyMode = true;
-                pet.partyUntilSong = newSongKey;
-                pet.hunger = Math.min(100, pet.hunger + 35);
-                pet.happiness = Math.min(100, pet.happiness + 25);
-                pet.songRequest = null;
-                savePet();
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                  mainWindow.webContents.send('pet-changed');
-                  mainWindow.webContents.send('pet-party');
-                  mainWindow.webContents.send('pet-sound', 'party');
-                }
-                log.info('Pet party triggered!');
-              }
-            }
-            // Clear party mode when a genuinely new song starts
-            if (pet.partyMode && pet.partyUntilSong && newSongKey !== pet.partyUntilSong) {
-              pet.partyMode = false; pet.partyUntilSong = null; savePet();
-              if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet-changed');
-            }
           }
 
           updateTrayTooltip(`${track.state === 'playing' ? '▶' : '⏸'} ${track.name} — ${track.artist}`);
@@ -1640,58 +1573,9 @@ function runApp() {
             postNowPlayingEmbed(track, url, ARTWORK_BOT_TOKEN, ARTWORK_CHANNEL_ID).catch(() => {});
           }).catch(() => {});
         }
-        if (track.state === 'playing') {
-          try {
-            updatePet();
-            if (pet.alive) {
-              pet.listenedSecsSinceLastFeed = (pet.listenedSecsSinceLastFeed||0) + (POLL_INTERVAL_MS/1000);
-              if (pet.listenedSecsSinceLastFeed >= 300) { pet.listenedSecsSinceLastFeed=0; pet.hunger=Math.min(100,pet.hunger+20); pet.happiness=Math.min(100,pet.happiness+5); if (mainWindow&&!mainWindow.isDestroyed()) mainWindow.webContents.send('pet-sound','fed'); }
-              if (pet.songRequest && track.name && track.name.toLowerCase()===pet.songRequest.name.toLowerCase()) { pet.hunger=Math.min(100,pet.hunger+30); pet.happiness=Math.min(100,pet.happiness+20); pet.songRequest=null; }
-              if (!pet.songRequest && playHistory.length>0) {
-                // Pick from deduplicated history, weighted toward less-played songs for variety.
-                // Filter out browser/YouTube media — these have no real artist or contain
-                // source tags like "(youtube)" in the name.
-                const seen=new Set(); const pool=[];
-                const counts={};
-                const isMusicTrack = (e) => {
-                  if (!e.name || !e.artist) return false;
-                  const nl = e.name.toLowerCase();
-                  const al = (e.artist || '').toLowerCase();
-                  // Reject obvious browser/YouTube media
-                  if (nl.includes('youtube') || nl.includes('soundcloud') || nl.includes('spotify')) return false;
-                  if (al.includes('youtube') || al === 'unknown' || al === '') return false;
-                  // Reject very long titles (YouTube video titles)
-                  if (e.name.length > 60) return false;
-                  // Reject titles that look like clickbait/questions
-                  if (nl.includes('what if') || nl.includes('why did') || nl.includes('how to') || nl.includes('elon') || nl.includes('?')) return false;
-                  // Require the entry has a real duration (songs are typically 90s-600s)
-                  if (e.trackLength && (e.trackLength < 60 || e.trackLength > 900)) return false;
-                  return true;
-                };
-                for (const e of playHistory) {
-                  if (!isMusicTrack(e)) continue;
-                  const k=e.name+'||'+(e.artist||'');
-                  counts[k]=(counts[k]||0)+1;
-                  if(!seen.has(k)){seen.add(k);pool.push({name:e.name,artist:e.artist||'',count:counts[k]});}
-                }
-                if (pool.length>0) {
-                  pool.sort((a,b)=>a.count-b.count);
-                  const bottom=pool.slice(0,Math.max(1,Math.floor(pool.length*0.6)));
-                  const pick=bottom[Math.floor(Math.random()*bottom.length)];
-                  pet.songRequest={name:pick.name,artist:pick.artist};
-                }
-              }
-              const cacheKey2 = track.name + '||' + (track.artist || '');
-              const realGenre = itunesGenreCache.get(cacheKey2) || 'hiphop';
-              pet.vibingGenre = realGenre; pet.vibingUntil=Date.now()+20000;
-              savePet();
-              if (mainWindow&&!mainWindow.isDestroyed()) mainWindow.webContents.send('pet-changed');
-            }
-          } catch(e) {}
-        }
-        }
         lastPosition = track.position;
         pushStateUpdate(track);
+      }
       }
       lastPollAt = now;
     } catch (err) {
@@ -1793,7 +1677,7 @@ function runApp() {
     let preMiniSize = null;
     ipcMain.handle('toggle-mini-mode', (_event, on) => {
       if (!mainWindow || mainWindow.isDestroyed()) return false;
-      if (on) { preMiniSize=mainWindow.getBounds(); mainWindow.setAlwaysOnTop(true,'floating'); mainWindow.setMinimumSize(200,240); mainWindow.setSize(220,280); }
+      if (on) { preMiniSize=mainWindow.getBounds(); mainWindow.setAlwaysOnTop(true,'floating'); mainWindow.setMinimumSize(260,340); mainWindow.setSize(300,360); }
       else { mainWindow.setAlwaysOnTop(false); mainWindow.setMinimumSize(320,400); if(preMiniSize)mainWindow.setBounds(preMiniSize); else mainWindow.setSize(420,680); }
       return on;
     });
@@ -1914,6 +1798,10 @@ function runApp() {
     ownerMode: ownerModeEnabled,
   }));
 
+  ipcMain.on('debug-log', (_e, msg) => {
+    log.info('RENDERER DEBUG:', msg);
+  });
+
   ipcMain.on('toggle-pause', () => {
     enabled = !enabled;
     if (!enabled && connected && rpc?.user) {
@@ -1933,6 +1821,7 @@ function runApp() {
   });
 
   ipcMain.on('quit-app', () => {
+    stopAudioViz();
     if (connected && rpc?.user) rpc.user.clearActivity().catch(() => {});
     pushLeaderboardUpdate().finally(() => app.quit());
   });
@@ -2110,132 +1999,6 @@ function runApp() {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.webContents.send('leaderboard-changed');
   }
-
-  // ---- Streaks ----
-  ipcMain.handle('get-streaks', () => {
-    if (playHistory.length === 0) return { current: 0, longest: 0, todayCount: 0 };
-
-    const days = new Set();
-    for (const e of playHistory) {
-      const d = new Date(e.timestamp);
-      days.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
-    }
-    const sorted = [...days].sort();
-
-    const today = new Date();
-    const todayKey = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-    const todayCount = playHistory.filter(e => {
-      const d = new Date(e.timestamp);
-      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` === todayKey;
-    }).length;
-
-    // Longest streak
-    let longest = 1, run = 1;
-    for (let i = 1; i < sorted.length; i++) {
-      const diff = (new Date(sorted[i]) - new Date(sorted[i-1])) / 86400000;
-      if (diff === 1) { run++; longest = Math.max(longest, run); }
-      else run = 1;
-    }
-
-    // Current streak working backwards from today or yesterday
-    let current = 0;
-    let checkMs = days.has(todayKey) ? new Date(todayKey).getTime() : new Date(todayKey).getTime() - 86400000;
-    while (true) {
-      const checkKey = new Date(checkMs).toISOString().slice(0, 10);
-      if (!days.has(checkKey)) break;
-      current++;
-      checkMs -= 86400000;
-    }
-
-    return { current, longest, todayCount };
-  });
-
-  // ---- Recommendations ----
-  // Songs by artists you haven't played much that appeared near your top
-  // artists in recent listening sessions.
-  ipcMain.handle('get-recommendations', () => {
-    if (playHistory.length < 10) return [];
-
-    const artistCounts = {};
-    for (const e of playHistory) {
-      const a = e.artist || 'Unknown';
-      artistCounts[a] = (artistCounts[a] || 0) + 1;
-    }
-
-    const topArtists = Object.entries(artistCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([a]) => a);
-
-    const lowPlayArtists = Object.entries(artistCounts)
-      .filter(([a, c]) => !topArtists.includes(a) && c < 3)
-      .map(([a]) => a);
-
-    const recs = new Map();
-    for (let i = 0; i < playHistory.length; i++) {
-      const e = playHistory[i];
-      if (!topArtists.includes(e.artist)) continue;
-      for (let j = Math.max(0, i - 5); j < Math.min(playHistory.length, i + 6); j++) {
-        if (j === i) continue;
-        const near = playHistory[j];
-        if (!near.artist || !lowPlayArtists.includes(near.artist)) continue;
-        if (Math.abs(near.timestamp - e.timestamp) > 30 * 60 * 1000) continue;
-        const key = `${near.name}||${near.artist}`;
-        if (!recs.has(key)) recs.set(key, { name: near.name, artist: near.artist, score: 0 });
-        recs.get(key).score++;
-      }
-    }
-
-    return [...recs.values()]
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 8)
-      .map(({ name, artist }) => ({ name, artist }));
-  });
-
-  // ---- Shareable card ----
-  // ---- Skip stats ----
-  ipcMain.handle('get-most-skipped', () => {
-    const skipCounts = {}, playCounts = {};
-    for (const e of playHistory) {
-      const k = `${e.name}||${e.artist}`;
-      playCounts[k] = (playCounts[k] || 0) + 1;
-      if (e.skipped) skipCounts[k] = (skipCounts[k] || 0) + 1;
-    }
-    return Object.entries(skipCounts).map(([k, skips]) => {
-      const [name, artist] = k.split('||');
-      return { name, artist, skips, plays: playCounts[k] || 0, skipRate: skips / (playCounts[k] || 1) };
-    }).sort((a, b) => b.skips - a.skips).slice(0, 10);
-  });
-
-  // ---- Personality type ----
-  ipcMain.handle('get-personality', () => {
-    if (playHistory.length < 20) return null;
-    const totalPlays = playHistory.length;
-    const skippedPlays = playHistory.filter(e => e.skipped).length;
-    const skipRate = skippedPlays / totalPlays;
-    const hourCounts = new Array(24).fill(0);
-    for (const e of playHistory) hourCounts[new Date(e.timestamp).getHours()]++;
-    const lateNight = hourCounts.slice(0, 5).reduce((a, b) => a + b, 0) / totalPlays;
-    const morning = hourCounts.slice(6, 12).reduce((a, b) => a + b, 0) / totalPlays;
-    const evening = hourCounts.slice(18, 24).reduce((a, b) => a + b, 0) / totalPlays;
-    const uniqueArtists = new Set(playHistory.map(e => e.artist)).size;
-    const diversityRate = uniqueArtists / totalPlays;
-    const artistCounts = {};
-    for (const e of playHistory) artistCounts[e.artist] = (artistCounts[e.artist] || 0) + 1;
-    const topArtistPlays = Math.max(...Object.values(artistCounts));
-    const dominance = topArtistPlays / totalPlays;
-    let type, desc, emoji;
-    if (skipRate > 0.4 && diversityRate > 0.3) { type = 'The Curator'; emoji = '🎯'; desc = "You skip a lot but you know exactly what you want. You cycle through artists fast and never settle for less than a banger."; }
-    else if (skipRate > 0.4 && diversityRate <= 0.3) { type = 'The Picky Stan'; emoji = '👑'; desc = "You're super picky but loyal — you skip anything that isn't your fave artist hitting different. Quality over quantity fr."; }
-    else if (skipRate < 0.1 && dominance > 0.5) { type = 'The Devoted'; emoji = '💿'; desc = "You find something you love and you ride it out. One artist, full albums, no skips. Respect."; }
-    else if (lateNight > 0.3 && skipRate < 0.2) { type = 'The Night Owl'; emoji = '🦉'; desc = "You do your best listening after midnight. Low skip rate means you're zoned in — probably studying or just vibing in the dark."; }
-    else if (morning > 0.3 && skipRate < 0.25) { type = 'The Morning Person'; emoji = '☀️'; desc = "Up early, playlist ready. You start the day with music and let it ride — not many skips means you came prepared."; }
-    else if (diversityRate > 0.4 && skipRate < 0.2) { type = 'The Explorer'; emoji = '🧭'; desc = "You listen to a wide range of artists and barely skip anything. You're genuinely open to whatever comes on — rare trait."; }
-    else if (dominance > 0.6) { type = 'The Stan'; emoji = '⭐'; desc = "One artist. That's it. That's the whole personality. No judgment — we know you know every lyric."; }
-    else if (evening > 0.35) { type = 'The Evening Viber'; emoji = '🌆'; desc = "You come alive in the evening. Music hits different at golden hour and you know it."; }
-    else { type = 'The All-Day Listener'; emoji = '🎧'; desc = "You listen all day, across artists, no particular pattern. Music is just always on for you — background, focus, everything."; }
-    return { type, desc, emoji, skipRate: Math.round(skipRate * 100), uniqueArtists, totalPlays };
-  });
 
   // ---- Listening party ----
   ipcMain.handle('get-listening-party', async () => {
