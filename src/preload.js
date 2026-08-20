@@ -9,9 +9,6 @@ contextBridge.exposeInMainWorld('musicToDiscord', {
   onStateUpdate: (callback) => {
     ipcRenderer.on('state-update', (_event, state) => callback(state));
   },
-  onVisualizerBands: (callback) => {
-    ipcRenderer.on('visualizer-bands', (_event, bands) => callback(bands));
-  },
 
   // Renderer-initiated actions
   togglePause: () => ipcRenderer.send('toggle-pause'),

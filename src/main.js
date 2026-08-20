@@ -471,6 +471,9 @@ function runApp() {
   }
 
   let tray = null;
+  let isQuitting = false; // set true right before a genuine app.quit(), so the
+                           // window's 'close' handler below knows to actually
+                           // let it close instead of hiding it to the tray
   let mainWindow = null;
   let rpc = null;
   let connected = false;
@@ -783,80 +786,6 @@ function runApp() {
       return path.join(process.resourcesPath, 'smtc-helper', 'smtc-helper.exe');
     }
     return path.join(__dirname, '..', 'smtc-helper', 'publish', 'smtc-helper.exe');
-  }
-
-  // ---- Audio visualizer (real, mic-free system audio capture) ----
-  // audio-viz-helper.exe is a PERSISTENT process (unlike smtc-helper, which
-  // is spawned fresh per poll and exits). It captures whatever Windows is
-  // currently outputting via WASAPI loopback and streams frequency band
-  // data continuously. We start it only while something is actually
-  // playing, and kill it otherwise -- no point burning CPU on FFT when
-  // there's nothing to visualize.
-  function getAudioVizHelperPath() {
-    if (app.isPackaged) {
-      return path.join(process.resourcesPath, 'audio-viz-helper', 'audio-viz-helper.exe');
-    }
-    return path.join(__dirname, '..', 'audio-viz-helper', 'publish', 'audio-viz-helper.exe');
-  }
-
-  let audioVizProc = null;
-  let audioVizWantedRunning = false; // tracks intent separately from actual process state
-
-  function startAudioViz() {
-    audioVizWantedRunning = true;
-    if (audioVizProc) return; // already running
-
-    const exePath = getAudioVizHelperPath();
-    if (!fs.existsSync(exePath)) {
-      // Helper not built/present -- fail silently, visualizer just stays
-      // in its idle/hidden state rather than crashing anything.
-      return;
-    }
-
-    const proc = spawn(exePath, []);
-    audioVizProc = proc;
-
-    const rl = require('readline').createInterface({ input: proc.stdout });
-    rl.on('line', (line) => {
-      if (!line.trim()) return;
-      try {
-        const data = JSON.parse(line);
-        if (Array.isArray(data.bands) && mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('visualizer-bands', data.bands);
-        }
-      } catch (e) {
-        // Malformed line -- skip it, next line will likely be fine.
-      }
-    });
-
-    let stderrBuf = '';
-    proc.stderr.on('data', (d) => { stderrBuf += d.toString(); });
-
-    proc.on('exit', (code) => {
-      if (stderrBuf.trim()) log.warn('audio-viz-helper stderr:', stderrBuf.trim());
-      audioVizProc = null;
-      // If we still want it running (e.g. it crashed mid-song rather than
-      // being deliberately stopped), retry after a short delay -- but only
-      // a few times in a row isn't tracked here for simplicity; a single
-      // retry covers the common transient case without risking a tight
-      // crash loop if the exe is just broken/missing a dependency.
-      if (audioVizWantedRunning) {
-        setTimeout(() => { if (audioVizWantedRunning) startAudioViz(); }, 3000);
-      }
-    });
-
-    proc.on('error', (err) => {
-      log.warn('Failed to spawn audio-viz-helper.exe:', err.message);
-      audioVizProc = null;
-    });
-  }
-
-  function stopAudioViz() {
-    audioVizWantedRunning = false;
-    if (audioVizProc) {
-      try { audioVizProc.kill(); } catch (e) {}
-      audioVizProc = null;
-    }
   }
 
   function getCurrentTrackSMTC() {
@@ -1468,12 +1397,8 @@ function runApp() {
           reportToMK(null);
           updateTrayTooltip(`${APP_NAME} — nothing playing`);
         }
-        stopAudioViz();
         pushStateUpdate(track);
       } else {
-        if (track.state === 'playing') startAudioViz();
-        else stopAudioViz(); // paused -- no audio actively outputting
-
         const key = `${track.name}|${track.artist}|${track.state}`;
 
         // Leaderboard: accumulate real elapsed wall-clock time since the
@@ -1724,8 +1649,13 @@ function runApp() {
       saveSettings(appSettings);
     });
 
-    // Spec: closing the window just hides it, app keeps running in tray.
+    // Spec: closing the window normally just hides it, app keeps running in
+    // tray. But a genuine quit (X button -> quitApp() -> app.quit(), or the
+    // tray's own Quit menu item) needs the window to actually close instead
+    // -- otherwise app.quit() gets stuck waiting on a window that never
+    // finishes closing, and the process just sits there hidden forever.
     mainWindow.on('close', (e) => {
+      if (isQuitting) return; // let it close for real
       e.preventDefault();
       mainWindow.hide();
     });
@@ -1821,7 +1751,7 @@ function runApp() {
   });
 
   ipcMain.on('quit-app', () => {
-    stopAudioViz();
+    isQuitting = true;
     if (connected && rpc?.user) rpc.user.clearActivity().catch(() => {});
     pushLeaderboardUpdate().finally(() => app.quit());
   });
@@ -2283,6 +2213,7 @@ function runApp() {
       {
         label: 'Quit',
         click: () => {
+          isQuitting = true;
           if (connected && rpc?.user) rpc.user.clearActivity().catch(() => {});
           pushLeaderboardUpdate().finally(() => app.quit());
         },
@@ -2430,7 +2361,11 @@ function runApp() {
     setInterval(() => autoUpdater.checkForUpdates(), 4 * 60 * 60 * 1000);
   });
 
+  app.on('before-quit', () => {
+    isQuitting = true;
+  });
+
   app.on('window-all-closed', (e) => {
-    e?.preventDefault?.();
+    if (!isQuitting) e?.preventDefault?.();
   });
 }

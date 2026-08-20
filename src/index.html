@@ -1202,37 +1202,10 @@
   }
   #listening-party.same-song { color: var(--good); font-weight: 600; }
 
-  /* ---- Visualizer (under track info, only animates while playing) ---- */
-  #visualizer {
-    display: none;
-    align-items: flex-end;
-    gap: 0;
-    height: 100px;
-    margin-top: 12px;
-  }
-  body.is-playing #visualizer { display: flex; }
-  #visualizer span {
-    flex: 1;
-    max-width: 1.5px;
-    background: linear-gradient(180deg, var(--indigo), var(--sky, var(--indigo)));
-    border-radius: 0.5px;
-    height: 30%;
-    transform-origin: bottom;
-    animation: viz-bounce 1s ease-in-out infinite;
-  }
-  @keyframes viz-bounce {
-    0%, 100% { transform: scaleY(0.25); }
-    50%      { transform: scaleY(1); }
-  }
-  /* Once real audio-driven data starts flowing, JS sets transform directly
-     on each frame -- kill the canned CSS animation so it doesn't fight it. */
-  body.viz-real #visualizer span { animation: none; }
-
   /* ---- Mini mode: big spinning album art + song title only ---- */
   body.mini-mode #tabs,
   body.mini-mode #fun-buttons,
   body.mini-mode #clock-wrap,
-  body.mini-mode #visualizer,
   body.mini-mode #listening-party,
   body.mini-mode #eyebrow,
   body.mini-mode #track-artist,
@@ -2023,7 +1996,6 @@
         <div id="track-name">Nothing playing</div>
         <div id="track-artist">Open Apple Music and press play</div>
         <div id="listening-party" style="display:none;"></div>
-        <div id="visualizer" aria-hidden="true"></div>
       </div>
     </div>
 

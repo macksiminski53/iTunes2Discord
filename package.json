@@ -47,10 +47,6 @@
                                          {
                                              "from":  "smtc-helper/publish",
                                              "to":  "smtc-helper"
-                                         },
-                                         {
-                                             "from":  "audio-viz-helper/publish",
-                                             "to":  "audio-viz-helper"
                                          }
                                      ]
               },
