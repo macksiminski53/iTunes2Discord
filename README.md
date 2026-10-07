@@ -1,3 +1,9 @@
+THIS PROJECT IS ON HOLD. MY ACC GOT LOST.
+
+
+
+
+
 # MusicToDiscord
 
 Shows what you're playing in iTunes or Apple Music as your Discord status —
